@@ -3,6 +3,7 @@
 // stacked label (a few dozen clear, numbered tiles) plus the chart's legend, and reads them.
 import { paintLabel } from './browser'
 import { CATALOGUE } from './engine/glyphs'
+import type { Rect } from './engine/legendArea'
 import type { Recognition } from './engine/recognize'
 
 export interface AiSettings {
@@ -54,17 +55,15 @@ function labelSheet(rec: Recognition): string {
   return sheet.toDataURL('image/png')
 }
 
-function legendCrop(img: HTMLImageElement, rec: Recognition): string | null {
-  const top = Math.round(rec.grid.offY + (rec.extent.r0 + rec.extent.rows) * rec.grid.perY)
-  const h = img.naturalHeight - top
-  if (h < 12) return null
-  const scale = Math.min(3, 2400 / img.naturalWidth)
+function legendCrop(img: HTMLImageElement, rect: Rect | null): string | null {
+  if (!rect || rect.h < 8 || rect.w < 8) return null
+  const scale = Math.min(3, 2400 / rect.w)
   const c = document.createElement('canvas')
-  c.width = Math.round(img.naturalWidth * scale)
-  c.height = Math.round(h * scale)
+  c.width = Math.round(rect.w * scale)
+  c.height = Math.round(rect.h * scale)
   const ctx = c.getContext('2d')!
   ctx.imageSmoothingQuality = 'high'
-  ctx.drawImage(img, 0, top, img.naturalWidth, h, 0, 0, c.width, c.height)
+  ctx.drawImage(img, rect.x, rect.y, rect.w, rect.h, 0, 0, c.width, c.height)
   return c.toDataURL('image/png')
 }
 
@@ -75,8 +74,8 @@ export interface AiReading {
   legend: Record<string, number>
 }
 
-export async function readCodesWithAi(img: HTMLImageElement, rec: Recognition, settings: AiSettings): Promise<AiReading> {
-  const legend = legendCrop(img, rec)
+export async function readCodesWithAi(img: HTMLImageElement, rec: Recognition, legendRect: Rect | null, settings: AiSettings): Promise<AiReading> {
+  const legend = legendCrop(img, legendRect)
   const prompt = [
     `第一张图是 ${rec.groups.length} 个编号小图（#1 到 #${rec.groups.length}），每个小图里是一个拼豆色号，格式是一个大写字母加一到两位数字（例如 A1、B30、F13、H7、M3），少数是 ZG 加数字。字有些模糊。`,
     legend ? '第二张图是同一张图纸的图例，上面印着这张图纸用到的全部色号和每个色号的颗数。小图里的色号一定出现在图例里，请用图例来确定模糊的字。' : '',

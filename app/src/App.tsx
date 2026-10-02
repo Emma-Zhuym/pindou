@@ -3,6 +3,7 @@ import './App.css'
 import { type AiSettings, loadAiSettings, readCodesWithAi, saveAiSettings } from './ai'
 import { loadImage, paintLabel, renderText, toRaster } from './browser'
 import { CATALOGUE, type Rgb } from './engine/glyphs'
+import { findLegend, type Rect } from './engine/legendArea'
 import { recognise, type Recognition } from './engine/recognize'
 
 type Tab = 'import' | 'codes' | 'wall' | 'list'
@@ -32,6 +33,16 @@ export default function App() {
   const [legend, setLegend] = useState<Record<string, number>>({})
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
+  const [legendRect, setLegendRect] = useState<Rect | null>(null)
+  const bar = useRef<HTMLElement>(null)
+
+  // the legend panel sticks just under the top bar, whose height depends on the layout
+  useLayoutEffect(() => {
+    const set = () => bar.current && document.documentElement.style.setProperty('--bar-h', `${bar.current.offsetHeight}px`)
+    set()
+    window.addEventListener('resize', set)
+    return () => window.removeEventListener('resize', set)
+  }, [])
 
   async function open(src: Blob | string) {
     setError('')
@@ -40,13 +51,15 @@ export default function App() {
       const image = await loadImage(src)
       // let the "working" state paint before the main thread is busy
       await new Promise((r) => setTimeout(r, 30))
-      const result = recognise(toRaster(image), renderText)
+      const raster = toRaster(image)
+      const result = recognise(raster, renderText)
       if (!result.groups.length) throw new Error('没有识别出带色号的格子，这张图可能不是带色号的图纸')
       setImg(image)
       setRec(result)
       setNames(result.groups.map((g) => g.code))
       setAssign(Int16Array.from(result.assign))
       setLegend({})
+      setLegendRect(findLegend(raster, result))
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -62,7 +75,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="bar">
+      <header className="bar" ref={bar}>
         <h1>拼豆图纸</h1>
         <nav className="segmented" role="tablist">
           {TABS.map(([t, label]) => (
@@ -75,7 +88,7 @@ export default function App() {
       <main>
         {tab === 'import' && <ImportPage img={img} rec={rec} names={names} assign={assign} busy={busy} error={error} onOpen={open} onNext={() => setTab('codes')} />}
         {tab === 'codes' && img && rec && (
-          <CodesPage img={img} rec={rec} names={names} counts={counts} legend={legend} onNames={setNames} onLegend={setLegend} onNext={() => setTab('wall')} />
+          <CodesPage img={img} rec={rec} names={names} counts={counts} legend={legend} legendRect={legendRect} onNames={setNames} onLegend={setLegend} onLegendRect={setLegendRect} onNext={() => setTab('wall')} />
         )}
         {tab === 'wall' && img && rec && <WallPage img={img} rec={rec} names={names} assign={assign} counts={counts} legend={legend} onAssign={setAssign} onNames={setNames} />}
         {tab === 'list' && img && rec && <ListPage counts={counts} legend={legend} />}
@@ -213,10 +226,13 @@ function CodesPage(props: {
   counts: Map<string, number>
   legend: Record<string, number>
   onNames: (n: string[]) => void
+  legendRect: Rect | null
   onLegend: (l: Record<string, number>) => void
+  onLegendRect: (r: Rect | null) => void
   onNext: () => void
 }) {
-  const { img, rec, names, counts, legend, onNames, onLegend, onNext } = props
+  const { img, rec, names, counts, legend, legendRect, onNames, onLegend, onLegendRect, onNext } = props
+  const [cropping, setCropping] = useState(false)
   const [ai, setAi] = useState<AiSettings>(loadAiSettings)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
@@ -231,7 +247,7 @@ function CodesPage(props: {
     setNote('')
     saveAiSettings(ai)
     try {
-      const reading = await readCodesWithAi(img, rec, ai)
+      const reading = await readCodesWithAi(img, rec, legendRect, ai)
       let changed = 0
       const next = names.map((n, i) => {
         const c = reading.codes[i]
@@ -252,6 +268,25 @@ function CodesPage(props: {
 
   return (
     <div className="page">
+      <section className="card legendpanel">
+        <div className="row">
+          <b>原图图例</b>
+          <button className="link" onClick={() => setCropping(true)}>
+            {legendRect ? '重新框选' : '框选图例'}
+          </button>
+        </div>
+        {legendRect ? <LegendView img={img} rect={legendRect} /> : <p className="hint">没有自动找到图例。点"框选图例"自己框一下。</p>}
+      </section>
+      {cropping && (
+        <CropSheet
+          img={img}
+          onDone={(r) => {
+            onLegendRect(r)
+            setCropping(false)
+          }}
+          onCancel={() => setCropping(false)}
+        />
+      )}
       <p className="hint">每张卡片是一种颜色：左边是这种颜色所有格子叠在一起后的色号，右边是程序读出的名字。名字不对就直接改，整组一起改。</p>
       <section className="card ai">
         <button className="link" onClick={() => setShowAi(!showAi)}>
@@ -301,6 +336,101 @@ function CodesPage(props: {
       <button className="primary" onClick={onNext}>
         下一步：逐格核对
       </button>
+    </div>
+  )
+}
+
+/** The legend cut from the original image, enlarged so its small print can be read. */
+function LegendView({ img, rect }: { img: HTMLImageElement; rect: Rect }) {
+  const ref = useRef<HTMLCanvasElement>(null)
+  // a legend is a thin strip: start zoomed in far enough that its print is about readable size
+  const [zoom, setZoom] = useState(() => Math.min(4, Math.max(1, Math.round((4 * 90) / ((720 * rect.h) / rect.w)) / 4)))
+  useEffect(() => {
+    const c = ref.current
+    if (!c) return
+    // enlarged for sharp zooming, but kept under the canvas size phones allow
+    const scale = Math.min(2 * (window.devicePixelRatio || 1), 4096 / rect.w)
+    c.width = Math.round(rect.w * scale)
+    c.height = Math.round(rect.h * scale)
+    const ctx = c.getContext('2d')!
+    ctx.imageSmoothingQuality = 'high'
+    ctx.drawImage(img, rect.x, rect.y, rect.w, rect.h, 0, 0, c.width, c.height)
+  }, [img, rect])
+  return (
+    <>
+      <div className="legendscroll">
+        <canvas ref={ref} style={{ width: `${100 * zoom}%`, aspectRatio: `${rect.w} / ${rect.h}` }} />
+      </div>
+      <div className="row zoomrow">
+        <span className="sub">放大</span>
+        <input type="range" min={1} max={4} step={0.25} value={zoom} onChange={(e) => setZoom(Number(e.target.value))} aria-label="图例放大倍数" />
+      </div>
+    </>
+  )
+}
+
+/** Drag a box around the legend on the full image. */
+function CropSheet({ img, onDone, onCancel }: { img: HTMLImageElement; onDone: (r: Rect) => void; onCancel: () => void }) {
+  const [box, setBox] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
+  const start = useRef<{ x: number; y: number } | null>(null)
+  const at = (e: React.PointerEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect()
+    return { x: Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), y: Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)) }
+  }
+  const ok = box && Math.abs(box.x1 - box.x0) > 0.02 && Math.abs(box.y1 - box.y0) > 0.005
+  return (
+    <div className="sheet" onClick={onCancel}>
+      <div className="sheetbody wide" onClick={(e) => e.stopPropagation()}>
+        <p className="hint">在图上拖一个框，把图例框住。</p>
+        <div
+          className="cropstage"
+          onPointerDown={(e) => {
+            e.currentTarget.setPointerCapture(e.pointerId)
+            const p = at(e)
+            start.current = p
+            setBox({ x0: p.x, y0: p.y, x1: p.x, y1: p.y })
+          }}
+          onPointerMove={(e) => {
+            if (!start.current) return
+            const p = at(e)
+            setBox({ x0: start.current.x, y0: start.current.y, x1: p.x, y1: p.y })
+          }}
+          onPointerUp={() => (start.current = null)}
+        >
+          <img src={img.src} alt="原图" draggable={false} />
+          {box && (
+            <div
+              className="cropbox"
+              style={{
+                left: `${Math.min(box.x0, box.x1) * 100}%`,
+                top: `${Math.min(box.y0, box.y1) * 100}%`,
+                width: `${Math.abs(box.x1 - box.x0) * 100}%`,
+                height: `${Math.abs(box.y1 - box.y0) * 100}%`,
+              }}
+            />
+          )}
+        </div>
+        <div className="row">
+          <button className="link" onClick={onCancel}>
+            取消
+          </button>
+          <button
+            className="primary small"
+            disabled={!ok}
+            onClick={() =>
+              box &&
+              onDone({
+                x: Math.round(Math.min(box.x0, box.x1) * img.naturalWidth),
+                y: Math.round(Math.min(box.y0, box.y1) * img.naturalHeight),
+                w: Math.round(Math.abs(box.x1 - box.x0) * img.naturalWidth),
+                h: Math.round(Math.abs(box.y1 - box.y0) * img.naturalHeight),
+              })
+            }
+          >
+            用这个范围
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
