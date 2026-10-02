@@ -1,863 +1,422 @@
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
-import { type AiSettings, loadAiSettings, readCodesWithAi, saveAiSettings } from './ai'
-import { loadImage, paintLabel, renderText, toRaster } from './browser'
-import { CATALOGUE, type Rgb } from './engine/glyphs'
-import { findLegend, type Rect } from './engine/legendArea'
-import { recognise, type Recognition } from './engine/recognize'
+import { type AiSettings, loadAiSettings, saveAiSettings } from './ai'
+import { Flow } from './flow/Flow'
+import { Icon } from './Icon'
+import { codeColour, codeOrder, drawBoard, ICONS } from './shared'
+import { type Chart, deleteChart, exportBackup, importBackup, listCharts, persist, putChart, type Status, STATUS_LABEL } from './store'
 
-type Tab = 'import' | 'codes' | 'wall' | 'list'
+type Tab = 'charts' | 'stock' | 'settings'
 const TABS: [Tab, string][] = [
-  ['import', '导入'],
-  ['codes', '色号'],
-  ['wall', '核对'],
-  ['list', '清单'],
+  ['charts', '图纸'],
+  ['stock', '库存'],
+  ['settings', '设置'],
 ]
-const SAMPLES = ['tree-52x64', 'landscape-84x84', 'portrait-50x70', 'dog-104x104']
-const GREY: Rgb = { r: 200, g: 200, b: 200 }
 
-const css = (c: Rgb) => `rgb(${Math.round(c.r)},${Math.round(c.g)},${Math.round(c.b)})`
-const codeOrder = (a: string, b: string) => {
-  const pa = /^([A-Z]+)(\d+)$/.exec(a)
-  const pb = /^([A-Z]+)(\d+)$/.exec(b)
-  if (!pa || !pb) return a.localeCompare(b)
-  return pa[1] === pb[1] ? Number(pa[2]) - Number(pb[2]) : pa[1].localeCompare(pb[1])
+/** A blob shown as an <img>, with its object URL released when no longer needed. */
+function useBlobUrl(blob: Blob | undefined) {
+  const url = useMemo(() => (blob ? URL.createObjectURL(blob) : ''), [blob])
+  useEffect(() => () => void (url && URL.revokeObjectURL(url)), [url])
+  return url
 }
 
 export default function App() {
-  const [tab, setTabState] = useState<Tab>('import')
-  // each page starts at its top; the pages share one scroll position otherwise
+  const [tab, setTabState] = useState<Tab>('charts')
+  const [charts, setCharts] = useState<Chart[] | null>(null)
+  const [openId, setOpenId] = useState<string | null>(null)
+  // the recognition flow: a new chart (null) or a saved one being corrected
+  const [flow, setFlow] = useState<{ chart?: Chart } | null>(null)
+  const [loadError, setLoadError] = useState('')
+
   const setTab = (t: Tab) => {
     setTabState(t)
+    setOpenId(null)
     window.scrollTo(0, 0)
   }
-  const [img, setImg] = useState<HTMLImageElement | null>(null)
-  const [rec, setRec] = useState<Recognition | null>(null)
-  const [names, setNames] = useState<string[]>([])
-  const [assign, setAssign] = useState<Int16Array>(new Int16Array(0))
-  const [legend, setLegend] = useState<Record<string, number>>({})
-  const [busy, setBusy] = useState('')
-  const [error, setError] = useState('')
-  const [legendRect, setLegendRect] = useState<Rect | null>(null)
-  const picker = useRef<HTMLInputElement>(null)
+  const reload = () =>
+    listCharts()
+      .then(setCharts)
+      .catch((e) => setLoadError(`读取图纸库失败：${e instanceof Error ? e.message : String(e)}`))
 
-  async function open(src: Blob | string) {
-    setError('')
-    setBusy('正在识别…')
-    try {
-      const image = await loadImage(src)
-      // let the "working" state paint before the main thread is busy
-      await new Promise((r) => setTimeout(r, 30))
-      const raster = toRaster(image)
-      const result = recognise(raster, renderText)
-      if (!result.groups.length) throw new Error('没有识别出带色号的格子，这张图可能不是带色号的图纸')
-      setImg(image)
-      setRec(result)
-      setNames(result.groups.map((g) => g.code))
-      setAssign(Int16Array.from(result.assign))
-      setLegend({})
-      setLegendRect(findLegend(raster, result))
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setBusy('')
-    }
-  }
+  useEffect(() => {
+    reload()
+    persist()
+  }, [])
 
-  const counts = useMemo(() => {
-    const m = new Map<string, number>()
-    for (const g of assign) if (g >= 0) m.set(names[g], (m.get(names[g]) ?? 0) + 1)
-    return m
-  }, [assign, names])
-
-  return (
-    <div className="app">
-      <header className="title">
-        <h1>{TABS.find(([t]) => t === tab)![1]}</h1>
-        {busy && <span className="sub">{busy}</span>}
-      </header>
-      <main>
-        {tab === 'import' && <ImportPage img={img} rec={rec} names={names} assign={assign} busy={busy} error={error} onOpen={open} onNext={() => setTab('codes')} />}
-        {tab === 'codes' && img && rec && (
-          <CodesPage img={img} rec={rec} names={names} counts={counts} legend={legend} legendRect={legendRect} onNames={setNames} onLegend={setLegend} onLegendRect={setLegendRect} onNext={() => setTab('wall')} />
-        )}
-        {tab === 'wall' && img && rec && <WallPage img={img} rec={rec} names={names} assign={assign} counts={counts} legend={legend} onAssign={setAssign} onNames={setNames} />}
-        {tab === 'list' && img && rec && <ListPage counts={counts} legend={legend} />}
-      </main>
-      <input
-        ref={picker}
-        type="file"
-        accept="image/*"
-        hidden
-        onChange={(e) => {
-          const f = e.target.files?.[0]
-          e.target.value = ''
-          if (f) {
-            setTab('import')
-            open(f)
-          }
+  if (flow) {
+    return (
+      <Flow
+        chart={flow.chart}
+        onClose={() => {
+          setFlow(null)
+          window.scrollTo(0, 0)
+        }}
+        onSaved={async (id) => {
+          await reload()
+          setFlow(null)
+          setTabState('charts')
+          setOpenId(id)
+          window.scrollTo(0, 0)
         }}
       />
+    )
+  }
+
+  const opened = charts?.find((c) => c.id === openId)
+  return (
+    <div className="app">
+      <main>
+        {tab === 'charts' &&
+          (opened ? (
+            <ChartDetail
+              chart={opened}
+              onBack={() => setOpenId(null)}
+              onEdit={() => setFlow({ chart: opened })}
+              onChange={async (c) => {
+                await putChart(c)
+                await reload()
+              }}
+              onDelete={async () => {
+                await deleteChart(opened.id)
+                setOpenId(null)
+                await reload()
+              }}
+            />
+          ) : (
+            <Library charts={charts} error={loadError} onOpen={(id) => setOpenId(id)} onNew={() => setFlow({})} />
+          ))}
+        {tab === 'stock' && <StockPage />}
+        {tab === 'settings' && <SettingsPage onRestored={reload} count={charts?.length ?? 0} />}
+      </main>
       <div className="dock">
         <nav className="tabbar glass" role="tablist">
           {TABS.map(([t, label]) => (
-            <button key={t} role="tab" aria-selected={tab === t} disabled={t !== 'import' && !(img && rec)} onClick={() => setTab(t)}>
-              <TabIcon tab={t} />
+            <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>
+              <Icon d={ICONS[t]} />
               <span>{label}</span>
             </button>
           ))}
         </nav>
-        <button className="fab glass" aria-label="导入新图纸" disabled={!!busy} onClick={() => picker.current?.click()}>
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M12 5v14M5 12h14" />
-          </svg>
+        <button className="fab glass" aria-label="识别新图纸" onClick={() => setFlow({})}>
+          <Icon d={ICONS.plus} size={28} />
         </button>
       </div>
     </div>
   )
 }
 
-function TabIcon({ tab }: { tab: Tab }) {
-  const paths: Record<Tab, string> = {
-    import: 'M4 16.5V8a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v8.5M4 16.5 8.5 12l3.5 3.5 2.5-2.5 5.5 5M4 16.5V17a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-.5M15.5 9h.01',
-    codes: 'M5 5h5v5H5zM14 5h5v5h-5zM5 14h5v5H5zM14 14h5v5h-5z',
-    wall: 'M9 12.5l2.2 2.2L15.5 10M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z',
-    list: 'M9 7h11M9 12h11M9 17h11M4.5 7h.01M4.5 12h.01M4.5 17h.01',
-  }
+// ------------------------------------------------------------------ library
+
+type Filter = 'all' | Status
+
+function Library({ charts, error, onOpen, onNew }: { charts: Chart[] | null; error: string; onOpen: (id: string) => void; onNew: () => void }) {
+  const [filter, setFilter] = useState<Filter>('all')
+  const [tag, setTag] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
+  const all = charts ?? []
+  const tags = [...new Set(all.flatMap((c) => c.tags))].sort()
+  const shown = all.filter(
+    (c) => (filter === 'all' || c.status === filter) && (!tag || c.tags.includes(tag)) && (!query.trim() || c.title.toLowerCase().includes(query.trim().toLowerCase())),
+  )
+  const count = (s: Status) => all.filter((c) => c.status === s).length
+
   return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d={paths[tab]} />
-    </svg>
+    <div className="page">
+      <header className="title flat">
+        <h1>图纸</h1>
+        <span className="sub">{all.length} 张</span>
+      </header>
+      {error && <p className="error">{error}</p>}
+      {all.length > 0 && (
+        <>
+          <input className="search" type="search" placeholder="搜索名称" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="搜索图纸" />
+          <div className="segmented" role="tablist" aria-label="按状态筛选">
+            <button role="tab" aria-selected={filter === 'all'} onClick={() => setFilter('all')}>
+              全部
+            </button>
+            {(Object.keys(STATUS_LABEL) as Status[]).map((s) => (
+              <button key={s} role="tab" aria-selected={filter === s} onClick={() => setFilter(s)}>
+                {STATUS_LABEL[s]} {count(s)}
+              </button>
+            ))}
+          </div>
+          {tags.length > 0 && (
+            <div className="chips" aria-label="按标签筛选">
+              {tags.map((t) => (
+                <button key={t} className={tag === t ? 'chip on' : 'chip'} aria-pressed={tag === t} onClick={() => setTag(tag === t ? null : t)}>
+                  {t}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+      {charts && all.length === 0 && (
+        <section className="card empty">
+          <b>还没有图纸</b>
+          <p className="hint">点右下角的＋识别第一张，保存后会出现在这里。</p>
+          <button className="primary small" onClick={onNew}>
+            识别新图纸
+          </button>
+        </section>
+      )}
+      {all.length > 0 && shown.length === 0 && <p className="hint">没有符合条件的图纸。</p>}
+      <div className="grid">
+        {shown.map((c) => (
+          <ChartCard key={c.id} chart={c} onOpen={() => onOpen(c.id)} />
+        ))}
+      </div>
+    </div>
   )
 }
 
-function colourOf(rec: Recognition, names: string[], g: number): string {
-  return css(CATALOGUE[names[g]] ?? rec.groups[g]?.colour ?? GREY)
+function ChartCard({ chart, onOpen }: { chart: Chart; onOpen: () => void }) {
+  const thumb = useBlobUrl(chart.thumb)
+  return (
+    <button className="chartcard" onClick={onOpen}>
+      <span className="thumb">{thumb && <img src={thumb} alt="" />}</span>
+      <span className="meta">
+        <b>{chart.title}</b>
+        <span className="sub">
+          {chart.cols}×{chart.rows} · {Object.keys(chart.counts).length} 色
+        </span>
+      </span>
+      <span className={`status ${chart.status}`}>{STATUS_LABEL[chart.status]}</span>
+    </button>
+  )
 }
 
-// ------------------------------------------------------------------ import
-
-function ImportPage(props: {
-  img: HTMLImageElement | null
-  rec: Recognition | null
-  names: string[]
-  assign: Int16Array
-  busy: string
-  error: string
-  onOpen: (src: Blob | string) => void
-  onNext: () => void
-}) {
-  const { img, rec, names, assign, busy, error, onOpen, onNext } = props
+function ChartDetail(props: { chart: Chart; onBack: () => void; onEdit: () => void; onChange: (c: Chart) => Promise<void>; onDelete: () => Promise<void> }) {
+  const { chart, onBack, onEdit, onChange, onDelete } = props
   const board = useRef<HTMLCanvasElement>(null)
+  const original = useBlobUrl(chart.image)
+  const [view, setView] = useState<'board' | 'original'>('board')
+  const [title, setTitle] = useState(chart.title)
+  const [tagText, setTagText] = useState('')
 
   useEffect(() => {
-    const paste = (e: ClipboardEvent) => {
-      const file = [...(e.clipboardData?.files ?? [])].find((f) => f.type.startsWith('image/'))
-      if (file) onOpen(file)
-    }
-    window.addEventListener('paste', paste)
-    return () => window.removeEventListener('paste', paste)
-  })
+    if (board.current) drawBoard(board.current, chart.cols, chart.rows, chart.cells, 1200)
+  }, [chart, view])
 
-  useEffect(() => {
-    const canvas = board.current
-    if (!canvas || !rec) return
-    const { rows, cols } = rec.cells
-    const px = Math.max(3, Math.floor(640 / Math.max(rows, cols)))
-    canvas.width = cols * px
-    canvas.height = rows * px
-    const ctx = canvas.getContext('2d')!
-    ctx.fillStyle = '#fff'
-    ctx.fillRect(0, 0, canvas.width, canvas.height)
-    for (let i = 0; i < assign.length; i++) {
-      if (assign[i] < 0) continue
-      ctx.fillStyle = colourOf(rec, names, assign[i])
-      ctx.fillRect((i % cols) * px, Math.floor(i / cols) * px, px, px)
-    }
-  }, [rec, names, assign])
+  const update = (patch: Partial<Chart>) => onChange({ ...chart, ...patch, updatedAt: Date.now() })
+  const rows = Object.entries(chart.counts).sort((a, b) => codeOrder(a[0], b[0]))
+  const total = rows.reduce((a, [, n]) => a + n, 0)
+  const legendCodes = Object.keys(chart.legend)
+  const off = legendCodes.filter((c) => (chart.counts[c] ?? 0) !== chart.legend[c]).length
 
-  const unsure = rec ? rec.unsure.reduce((a, b) => a + b, 0) : 0
-  const beads = assign.reduce((a, g) => a + (g >= 0 ? 1 : 0), 0)
   return (
     <div className="page">
-      <label
-        className="drop"
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={(e) => {
-          e.preventDefault()
-          const f = e.dataTransfer.files[0]
-          if (f) onOpen(f)
-        }}
-      >
-        <input type="file" accept="image/*" hidden onChange={(e) => e.target.files?.[0] && onOpen(e.target.files[0])} />
-        <strong>{busy || '选择图纸图片'}</strong>
-        <span>也可以把图片拖进来，或直接粘贴</span>
-      </label>
-      <div className="samples">
-        <span>样本图：</span>
-        {SAMPLES.map((s) => (
-          <button key={s} className="link" disabled={!!busy} onClick={() => onOpen(`/samples/${s}.jpg`)}>
-            {s}
+      <div className="toolbar">
+        <button className="circle glass" aria-label="返回图纸列表" onClick={onBack}>
+          <Icon d={ICONS.back} size={20} />
+        </button>
+        <button className="primary small" onClick={onEdit}>
+          修改识别结果
+        </button>
+      </div>
+      <input
+        className="titleinput"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        onBlur={() => title.trim() && title.trim() !== chart.title && update({ title: title.trim() })}
+        aria-label="图纸名称"
+      />
+      <div className="segmented" role="radiogroup" aria-label="状态">
+        {(Object.keys(STATUS_LABEL) as Status[]).map((s) => (
+          <button key={s} role="radio" aria-checked={chart.status === s} aria-selected={chart.status === s} onClick={() => update({ status: s })}>
+            {STATUS_LABEL[s]}
           </button>
         ))}
       </div>
-      {error && <p className="error">{error}</p>}
-      {rec && img && (
-        <>
-          <section className="card stats">
-            <div>
-              <b>
-                {rec.cells.cols} × {rec.cells.rows}
-              </b>
-              <span>格子</span>
-            </div>
-            <div>
-              <b>{rec.groups.length}</b>
-              <span>种颜色</span>
-            </div>
-            <div>
-              <b>{beads}</b>
-              <span>颗</span>
-            </div>
-            <div>
-              <b>{unsure}</b>
-              <span>格待确认</span>
-            </div>
-          </section>
-          <section className="card compare">
-            <figure>
-              <img src={img.src} alt="原图" />
-              <figcaption>原图</figcaption>
-            </figure>
-            <figure>
-              <canvas ref={board} />
-              <figcaption>识别结果</figcaption>
-            </figure>
-          </section>
-          <button className="primary" onClick={onNext}>
-            下一步：确认色号
-          </button>
-        </>
-      )}
-    </div>
-  )
-}
-
-// ------------------------------------------------------------------ codes
-
-function Label({ label, px = 96 }: { label: Float32Array; px?: number }) {
-  const ref = useRef<HTMLCanvasElement>(null)
-  useEffect(() => {
-    if (ref.current) paintLabel(ref.current, label, px * 2)
-  }, [label, px])
-  return <canvas ref={ref} className="label" style={{ width: px, height: px }} />
-}
-
-function CodesPage(props: {
-  img: HTMLImageElement
-  rec: Recognition
-  names: string[]
-  counts: Map<string, number>
-  legend: Record<string, number>
-  legendRect: Rect | null
-  onNames: (n: string[]) => void
-  onLegend: (l: Record<string, number>) => void
-  onLegendRect: (r: Rect | null) => void
-  onNext: () => void
-}) {
-  const { img, rec, names, counts, legend, legendRect, onNames, onLegend, onLegendRect, onNext } = props
-  const [cropping, setCropping] = useState(false)
-  const [ai, setAi] = useState<AiSettings>(loadAiSettings)
-  const [busy, setBusy] = useState(false)
-  const [note, setNote] = useState('')
-  const [showAi, setShowAi] = useState(false)
-  const [sort, setSort] = useState<'count' | 'code'>('count')
-  const [newCode, setNewCode] = useState('')
-  const [newCount, setNewCount] = useState('')
-  // where the add row is open: under this group's row, or null for the end of the list
-  const [insertAt, setInsertAt] = useState<number | null>(null)
-
-  // Legends are printed either by count or by code, so the list can follow either. The order is
-  // recomputed when the mode changes or an edit is finished, not on every keystroke, so a row
-  // does not jump away while its code is being typed.
-  // a colour the recogniser missed sorts by the count typed for it
-  const size = (code: string) => counts.get(code) || legend[code] || 0
-  const sortedBy = (mode: 'count' | 'code', list: string[]) =>
-    list
-      .map((_, i) => i)
-      .filter((i) => list[i])
-      .sort((x, y) => (mode === 'code' ? codeOrder(list[x], list[y]) : size(list[y]) - size(list[x]) || codeOrder(list[x], list[y])))
-  const [order, setOrder] = useState(() => sortedBy(sort, names))
-  const resort = () => setOrder(sortedBy(sort, names))
-  const changeSort = (mode: 'count' | 'code') => {
-    setSort(mode)
-    setOrder(sortedBy(mode, names))
-  }
-
-  const live = names.filter(Boolean)
-  const dupes = new Set(live.filter((n, i) => live.indexOf(n) !== i))
-  const setCount = (code: string, text: string) => {
-    const next = { ...legend }
-    const n = Number(text)
-    if (text.trim() === '' || !Number.isFinite(n) || n < 0) delete next[code]
-    else next[code] = Math.round(n)
-    onLegend(next)
-  }
-  const rename = (i: number, text: string) => {
-    const code = text.toUpperCase().trim()
-    const old = names[i]
-    // the count typed for a row follows the row when its code is corrected
-    if (old in legend && !(code in legend) && !names.some((n, k) => k !== i && n === old)) {
-      const next = { ...legend, [code]: legend[old] }
-      delete next[old]
-      onLegend(next)
-    }
-    onNames(names.map((v, k) => (k === i ? code : v)))
-  }
-  const addCode = newCode.toUpperCase().trim()
-  const canAdd = addCode in CATALOGUE && !live.includes(addCode)
-  const add = () => {
-    const next = [...names, addCode]
-    onNames(next)
-    // the new row stays where it was inserted, so it lines up with the legend being read
-    const at = insertAt === null ? -1 : order.indexOf(insertAt)
-    setOrder(at < 0 ? [...order, names.length] : [...order.slice(0, at + 1), names.length, ...order.slice(at + 1)])
-    setInsertAt(null)
-    if (newCount.trim()) setCount(addCode, newCount)
-    setNewCode('')
-    setNewCount('')
-  }
-
-  const found = [...counts.values()].reduce((x, y) => x + y, 0)
-  const printed = Object.entries(legend).filter(([c]) => live.includes(c))
-  const printedTotal = printed.reduce((x, [, n]) => x + n, 0)
-  const mismatched = printed.filter(([c, n]) => (counts.get(c) ?? 0) !== n).length
-
-  const addRow = (
-    <div className="coderow add">
-      <span className="nolabel">新增</span>
-      <div className="codecell">
-        <input className="codeinput" placeholder="色号" value={newCode} onChange={(e) => setNewCode(e.target.value)} aria-label="新增色号" />
-        {newCode && !(addCode in CATALOGUE) && <span className="sub bad">不是 MARD 色号</span>}
-        {live.includes(addCode) && <span className="sub">已在列表里</span>}
-      </div>
-      <span className="num">0</span>
-      <div className="wantcell">
-        <input className="countinput" inputMode="numeric" placeholder="颗数" value={newCount} onChange={(e) => setNewCount(e.target.value.replace(/\D/g, ''))} aria-label="新增色号的图例颗数" />
-      </div>
-      <span className="rowactions">
-        <button className="link" disabled={!canAdd} onClick={add}>
-          添加
-        </button>
-        {insertAt !== null && (
-          <button className="link" onClick={() => setInsertAt(null)}>
-            取消
-          </button>
-        )}
-      </span>
-    </div>
-  )
-
-  async function askAi() {
-    setBusy(true)
-    setNote('')
-    saveAiSettings(ai)
-    try {
-      const reading = await readCodesWithAi(img, rec, legendRect, ai)
-      let changed = 0
-      const next = names.map((n, i) => {
-        const c = reading.codes[i]
-        if (c && c !== n) changed++
-        return c ?? n
-      })
-      onNames(next)
-      setOrder(sortedBy(sort, next))
-      onLegend({ ...legend, ...reading.legend })
-      const missed = reading.codes.filter((c) => !c).length
-      const read = Object.keys(reading.legend).length
-      setNote(`AI 改了 ${changed} 个色号${missed ? `，有 ${missed} 个没读出来（保留原判断）` : ''}${read ? `，并读到图例上 ${read} 个色号的颗数` : ''}`)
-    } catch (e) {
-      setNote(e instanceof Error ? e.message : String(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div className="page">
-      <section className="card legendpanel">
-        <div className="row">
-          <b>原图图例</b>
-          <button className="link" onClick={() => setCropping(true)}>
-            {legendRect ? '重新框选' : '框选图例'}
-          </button>
-        </div>
-        {legendRect ? <LegendView img={img} rect={legendRect} /> : <p className="hint">没有自动找到图例。点"框选图例"自己框一下。</p>}
-      </section>
-      {cropping && (
-        <CropSheet
-          img={img}
-          onDone={(r) => {
-            onLegendRect(r)
-            setCropping(false)
-          }}
-          onCancel={() => setCropping(false)}
-        />
-      )}
-      <section className="card ai">
-        <button className="link" onClick={() => setShowAi(!showAi)}>
-          {showAi ? '收起' : '让 AI 读色号和颗数（可选）'}
-        </button>
-        {showAi && (
-          <div className="aiform">
-            <input placeholder="OpenRouter API Key" type="password" autoComplete="off" value={ai.key} onChange={(e) => setAi({ ...ai, key: e.target.value })} />
-            <input placeholder="模型 ID（在 OpenRouter 模型页复制）" value={ai.model} onChange={(e) => setAi({ ...ai, model: e.target.value })} />
-            <button className="primary small" disabled={busy || !ai.key || !ai.model} onClick={askAi}>
-              {busy ? '读取中…' : '读色号'}
+      <div className="chips">
+        {chart.tags.map((t) => (
+          <span key={t} className="chip on">
+            {t}
+            <button className="chipx" aria-label={`去掉标签 ${t}`} onClick={() => update({ tags: chart.tags.filter((x) => x !== t) })}>
+              ×
             </button>
-            <p className="hint">只发送色号小图和上面这块图例，不发整张图纸。Key 只存在这台设备上。</p>
-          </div>
-        )}
-        {note && <p className="hint">{note}</p>}
-      </section>
-
-      <div className="listhead">
-        <div className="segmented small" role="tablist" aria-label="排序">
-          <button role="tab" aria-selected={sort === 'count'} onClick={() => changeSort('count')}>
-            按数量
-          </button>
-          <button role="tab" aria-selected={sort === 'code'} onClick={() => changeSort('code')}>
-            按色号
-          </button>
-        </div>
-        <span className="sub">
-          {live.length} 色，识别 {found} 颗{printed.length > 0 && `；图例已填 ${printed.length} 色共 ${printedTotal} 颗，${mismatched ? `${mismatched} 个对不上` : '全部对上'}`}
-        </span>
-      </div>
-
-      <section className="card codelist">
-        <div className="coderow head">
-          <span />
-          <span>色号</span>
-          <span className="num">识别</span>
-          <span className="num">图例</span>
-          <span />
-        </div>
-        {order
-          .filter((i) => names[i])
-          .map((i) => {
-            const g = rec.groups[i]
-            const code = names[i]
-            const valid = code in CATALOGUE
-            const n = counts.get(code) ?? 0
-            const want = legend[code]
-            const diff = want === undefined ? null : n - want
-            return (
-              <Fragment key={i}>
-              <div className="coderow">
-                {g ? <Label label={g.label} px={52} /> : <span className="nolabel">手动添加</span>}
-                <div className="codecell">
-                  <span className="swatch" style={{ background: css(g?.colour ?? CATALOGUE[code] ?? GREY) }} />
-                  <input
-                    className={!valid ? 'codeinput bad' : dupes.has(code) ? 'codeinput warn' : 'codeinput'}
-                    value={code}
-                    onChange={(e) => rename(i, e.target.value)}
-                    onBlur={resort}
-                    aria-label="色号"
-                  />
-                  {!valid && <span className="sub bad">不是 MARD 色号</span>}
-                  {valid && dupes.has(code) && <span className="sub">同名，已合并</span>}
-                </div>
-                <span className="num">{n}</span>
-                <div className="wantcell">
-                  <input
-                    className="countinput"
-                    inputMode="numeric"
-                    placeholder="—"
-                    value={want ?? ''}
-                    onChange={(e) => setCount(code, e.target.value.replace(/\D/g, ''))}
-                    aria-label={`${code} 图例颗数`}
-                  />
-                  {diff !== null && <span className={diff === 0 ? 'diff ok' : 'diff off'}>{diff === 0 ? '一致' : diff > 0 ? `多 ${diff}` : `少 ${-diff}`}</span>}
-                </div>
-                <span className="rowactions">
-                  <button className="link" title="在这一行下面插入一个色号" aria-label={`在 ${code} 下面插入色号`} onClick={() => setInsertAt(i)}>
-                    插入
-                  </button>
-                  <button
-                    className="link del"
-                    disabled={n > 0}
-                    title={n > 0 ? '这个色号下还有格子：把它改成正确的色号即可并入，或到核对页把格子移走' : '删除这个色号'}
-                    onClick={() => {
-                      const next = { ...legend }
-                      delete next[code]
-                      onLegend(next)
-                      onNames(names.map((v, k) => (k === i ? '' : v)))
-                    }}
-                  >
-                    删除
-                  </button>
-                </span>
-              </div>
-              {insertAt === i && addRow}
-              </Fragment>
-            )
-          })}
-        {insertAt === null && addRow}
-      </section>
-      <p className="hint">
-        "识别"是程序数出来的颗数，"图例"填图纸上印的颗数，两边对不上的会标出来，到核对页也会显示。程序漏掉的色号：点任意一行的"插入"加在它下面，或在最后一行新增，再到核对页把对应的格子改过去。还有格子的色号不能直接删：改成正确的色号就会并过去。
-      </p>
-      <button className="primary" onClick={onNext}>
-        下一步：逐格核对
-      </button>
-    </div>
-  )
-}
-
-/** The legend cut from the original image, enlarged so its small print can be read. */
-function LegendView({ img, rect }: { img: HTMLImageElement; rect: Rect }) {
-  const ref = useRef<HTMLCanvasElement>(null)
-  // a legend is a thin strip: start zoomed in far enough that its print is about readable size
-  const [zoom, setZoom] = useState(() => Math.min(4, Math.max(1, Math.round((4 * 90) / ((720 * rect.h) / rect.w)) / 4)))
-  useEffect(() => {
-    const c = ref.current
-    if (!c) return
-    // enlarged for sharp zooming, but kept under the canvas size phones allow
-    const scale = Math.min(2 * (window.devicePixelRatio || 1), 4096 / rect.w)
-    c.width = Math.round(rect.w * scale)
-    c.height = Math.round(rect.h * scale)
-    const ctx = c.getContext('2d')!
-    ctx.imageSmoothingQuality = 'high'
-    ctx.drawImage(img, rect.x, rect.y, rect.w, rect.h, 0, 0, c.width, c.height)
-  }, [img, rect])
-  return (
-    <>
-      <div className="legendscroll">
-        <canvas ref={ref} style={{ width: `${100 * zoom}%`, aspectRatio: `${rect.w} / ${rect.h}` }} />
-      </div>
-      <div className="row zoomrow">
-        <span className="sub">放大</span>
-        <input type="range" min={1} max={4} step={0.25} value={zoom} onChange={(e) => setZoom(Number(e.target.value))} aria-label="图例放大倍数" />
-      </div>
-    </>
-  )
-}
-
-/** Drag a box around the legend on the full image. */
-function CropSheet({ img, onDone, onCancel }: { img: HTMLImageElement; onDone: (r: Rect) => void; onCancel: () => void }) {
-  const [box, setBox] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
-  const start = useRef<{ x: number; y: number } | null>(null)
-  const at = (e: React.PointerEvent<HTMLDivElement>) => {
-    const r = e.currentTarget.getBoundingClientRect()
-    return { x: Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), y: Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)) }
-  }
-  const ok = box && Math.abs(box.x1 - box.x0) > 0.02 && Math.abs(box.y1 - box.y0) > 0.005
-  return (
-    <div className="sheet" onClick={onCancel}>
-      <div className="sheetbody wide" onClick={(e) => e.stopPropagation()}>
-        <p className="hint">在图上拖一个框，把图例框住。</p>
-        <div
-          className="cropstage"
-          onPointerDown={(e) => {
-            e.currentTarget.setPointerCapture(e.pointerId)
-            const p = at(e)
-            start.current = p
-            setBox({ x0: p.x, y0: p.y, x1: p.x, y1: p.y })
+          </span>
+        ))}
+        <form
+          className="chipadd"
+          onSubmit={(e) => {
+            e.preventDefault()
+            const t = tagText.trim()
+            if (t && !chart.tags.includes(t)) update({ tags: [...chart.tags, t] })
+            setTagText('')
           }}
-          onPointerMove={(e) => {
-            if (!start.current) return
-            const p = at(e)
-            setBox({ x0: start.current.x, y0: start.current.y, x1: p.x, y1: p.y })
-          }}
-          onPointerUp={() => (start.current = null)}
         >
-          <img src={img.src} alt="原图" draggable={false} />
-          {box && (
-            <div
-              className="cropbox"
-              style={{
-                left: `${Math.min(box.x0, box.x1) * 100}%`,
-                top: `${Math.min(box.y0, box.y1) * 100}%`,
-                width: `${Math.abs(box.x1 - box.x0) * 100}%`,
-                height: `${Math.abs(box.y1 - box.y0) * 100}%`,
-              }}
-            />
-          )}
-        </div>
-        <div className="row">
-          <button className="link" onClick={onCancel}>
-            取消
-          </button>
-          <button
-            className="primary small"
-            disabled={!ok}
-            onClick={() =>
-              box &&
-              onDone({
-                x: Math.round(Math.min(box.x0, box.x1) * img.naturalWidth),
-                y: Math.round(Math.min(box.y0, box.y1) * img.naturalHeight),
-                w: Math.round(Math.abs(box.x1 - box.x0) * img.naturalWidth),
-                h: Math.round(Math.abs(box.y1 - box.y0) * img.naturalHeight),
-              })
-            }
-          >
-            用这个范围
-          </button>
-        </div>
+          <input value={tagText} onChange={(e) => setTagText(e.target.value)} placeholder="＋ 标签" aria-label="添加标签" />
+        </form>
       </div>
-    </div>
-  )
-}
 
-// ------------------------------------------------------------------ wall
-
-const TILE = 44
-
-function Tiles(props: { img: HTMLImageElement; rec: Recognition; cells: number[]; selected: Set<number>; onPick: (cell: number) => void }) {
-  const { img, rec, cells, selected, onPick } = props
-  const wrap = useRef<HTMLDivElement>(null)
-  const canvas = useRef<HTMLCanvasElement>(null)
-  const [perRow, setPerRow] = useState(8)
-
-  useLayoutEffect(() => {
-    const measure = () => wrap.current && setPerRow(Math.max(4, Math.floor(wrap.current.clientWidth / TILE)))
-    measure()
-    window.addEventListener('resize', measure)
-    return () => window.removeEventListener('resize', measure)
-  }, [])
-
-  useEffect(() => {
-    const c = canvas.current
-    if (!c) return
-    const dpr = window.devicePixelRatio || 1
-    const rows = Math.ceil(cells.length / perRow)
-    c.width = perRow * TILE * dpr
-    c.height = rows * TILE * dpr
-    c.style.width = `${perRow * TILE}px`
-    c.style.height = `${rows * TILE}px`
-    const ctx = c.getContext('2d')!
-    ctx.scale(dpr, dpr)
-    ctx.imageSmoothingQuality = 'high'
-    const { grid, cells: board } = rec
-    cells.forEach((cell, k) => {
-      const sx = grid.offX + (board.c0 + (cell % board.cols)) * grid.perX
-      const sy = grid.offY + (board.r0 + Math.floor(cell / board.cols)) * grid.perY
-      const x = (k % perRow) * TILE
-      const y = Math.floor(k / perRow) * TILE
-      ctx.drawImage(img, sx, sy, grid.perX, grid.perY, x + 1, y + 1, TILE - 2, TILE - 2)
-      if (rec.unsure[cell]) {
-        ctx.strokeStyle = '#ff9500'
-        ctx.lineWidth = 2
-        ctx.strokeRect(x + 2, y + 2, TILE - 4, TILE - 4)
-      }
-      if (selected.has(cell)) {
-        ctx.fillStyle = 'rgba(0, 122, 255, 0.28)'
-        ctx.fillRect(x + 1, y + 1, TILE - 2, TILE - 2)
-        ctx.strokeStyle = '#007aff'
-        ctx.lineWidth = 3
-        ctx.strokeRect(x + 2.5, y + 2.5, TILE - 5, TILE - 5)
-      }
-    })
-  }, [img, rec, cells, perRow, selected])
-
-  return (
-    <div ref={wrap} className="tiles">
-      <canvas
-        ref={canvas}
-        onClick={(e) => {
-          const r = e.currentTarget.getBoundingClientRect()
-          const k = Math.floor((e.clientY - r.top) / TILE) * perRow + Math.floor((e.clientX - r.left) / TILE)
-          if (k >= 0 && k < cells.length) onPick(cells[k])
-        }}
-      />
-    </div>
-  )
-}
-
-function WallPage(props: {
-  img: HTMLImageElement
-  rec: Recognition
-  names: string[]
-  assign: Int16Array
-  counts: Map<string, number>
-  legend: Record<string, number>
-  onAssign: (a: Int16Array) => void
-  onNames: (n: string[]) => void
-}) {
-  const { img, rec, names, assign, counts, legend, onAssign, onNames } = props
-  const [selected, setSelected] = useState<Set<number>>(new Set())
-  const [picking, setPicking] = useState(false)
-  const [custom, setCustom] = useState('')
-  const [expanded, setExpanded] = useState<Set<string>>(new Set())
-  const [onlyUnsure, setOnlyUnsure] = useState(false)
-  const LIMIT = 160
-
-  const byCode = useMemo(() => {
-    const m = new Map<string, number[]>()
-    for (let i = 0; i < assign.length; i++) {
-      if (assign[i] < 0) continue
-      const code = names[assign[i]]
-      if (!m.has(code)) m.set(code, [])
-      m.get(code)!.push(i)
-    }
-    // least certain first: mistakes are most likely at the top of each wall
-    for (const list of m.values()) list.sort((a, b) => rec.unsure[b] - rec.unsure[a] || rec.confidence[a] - rec.confidence[b])
-    return [...m].sort((a, b) => codeOrder(a[0], b[0]))
-  }, [assign, names, rec])
-
-  const codes = [...new Set(names.filter(Boolean))].sort(codeOrder)
-  const toggle = (cell: number) => {
-    const next = new Set(selected)
-    if (!next.delete(cell)) next.add(cell)
-    setSelected(next)
-  }
-  const move = (code: string | null) => {
-    let g = code === null ? -1 : names.indexOf(code)
-    if (code !== null && g < 0) {
-      // a colour the recogniser never found: it becomes a new group
-      g = names.length
-      onNames([...names, code])
-    }
-    const next = Int16Array.from(assign)
-    for (const cell of selected) next[cell] = g
-    onAssign(next)
-    setSelected(new Set())
-    setPicking(false)
-    setCustom('')
-  }
-  const first = selected.size ? [...selected][0] : null
-  const customCode = custom.toUpperCase().trim()
-
-  return (
-    <div className="page">
-      <p className="hint">每一面墙是被认成同一个色号的全部格子，直接从原图裁出来。混进去的错格子点一下改掉。橙色框是程序没把握的，排在最前面。</p>
-      <label className="toggle">
-        <input type="checkbox" checked={onlyUnsure} onChange={(e) => setOnlyUnsure(e.target.checked)} /> 只看没把握的
-      </label>
-      {byCode.map(([code, all]) => {
-        const cells = onlyUnsure ? all.filter((c) => rec.unsure[c]) : all
-        if (!cells.length) return null
-        const open = expanded.has(code)
-        const shown = open ? cells : cells.slice(0, LIMIT)
-        const want = legend[code]
-        return (
-          <section key={code} className="card wall">
-            <header>
-              <span className="swatch" style={{ background: css(CATALOGUE[code] ?? GREY) }} />
-              <b>{code}</b>
-              <span className="sub">
-                {counts.get(code)} 颗{want !== undefined && (want === counts.get(code) ? '，与图例一致' : `，图例 ${want}`)}
-              </span>
-            </header>
-            <Tiles img={img} rec={rec} cells={shown} selected={selected} onPick={toggle} />
-            {cells.length > LIMIT && (
-              <button className="link" onClick={() => setExpanded(new Set(open ? [...expanded].filter((c) => c !== code) : [...expanded, code]))}>
-                {open ? '收起' : `显示全部 ${cells.length} 格`}
-              </button>
-            )}
-          </section>
-        )
-      })}
-      {selected.size > 0 && !picking && (
-        <div className="actionbar">
-          <span>已选 {selected.size} 格</span>
-          <button className="link" onClick={() => setSelected(new Set())}>
-            取消
+      <section className="card preview">
+        <div className="segmented small" role="tablist">
+          <button role="tab" aria-selected={view === 'board'} onClick={() => setView('board')}>
+            识别结果
           </button>
-          <button className="primary small" onClick={() => setPicking(true)}>
-            改为…
+          <button role="tab" aria-selected={view === 'original'} onClick={() => setView('original')}>
+            原图
           </button>
         </div>
-      )}
-      {picking && first !== null && (
-        <div className="sheet" onClick={() => setPicking(false)}>
-          <div className="sheetbody" onClick={(e) => e.stopPropagation()}>
-            <Zoom img={img} rec={rec} cell={first} />
-            <p className="hint">{selected.size > 1 ? `这 ${selected.size} 格应该是：` : '这一格应该是：'}</p>
-            <div className="choices">
-              {codes.map((c) => (
-                <button key={c} className="choice" onClick={() => move(c)}>
-                  <span className="swatch" style={{ background: css(CATALOGUE[c] ?? GREY) }} />
-                  {c}
-                </button>
-              ))}
-              <button className="choice" onClick={() => move(null)}>
-                空格
-              </button>
-            </div>
-            <div className="row newcode">
-              <input placeholder="其他色号，如 A22" value={custom} onChange={(e) => setCustom(e.target.value)} aria-label="其他色号" />
-              <button className="primary small" disabled={!(customCode in CATALOGUE)} onClick={() => move(customCode)}>
-                用这个
-              </button>
-            </div>
-            <button className="link" onClick={() => setPicking(false)}>
-              取消
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
+        {view === 'board' ? <canvas ref={board} className="boardview" /> : <img src={original} alt="原图" className="boardview" />}
+      </section>
 
-/** The cell with its neighbours, large, so the label can be read. */
-function Zoom({ img, rec, cell }: { img: HTMLImageElement; rec: Recognition; cell: number }) {
-  const ref = useRef<HTMLCanvasElement>(null)
-  useEffect(() => {
-    const c = ref.current
-    if (!c) return
-    const { grid, cells } = rec
-    const side = 240
-    c.width = c.height = side
-    const ctx = c.getContext('2d')!
-    ctx.imageSmoothingQuality = 'high'
-    const sx = grid.offX + (cells.c0 + (cell % cells.cols) - 1) * grid.perX
-    const sy = grid.offY + (cells.r0 + Math.floor(cell / cells.cols) - 1) * grid.perY
-    ctx.fillStyle = '#fff'
-    ctx.fillRect(0, 0, side, side)
-    ctx.drawImage(img, sx, sy, grid.perX * 3, grid.perY * 3, 0, 0, side, side)
-    ctx.strokeStyle = '#007aff'
-    ctx.lineWidth = 3
-    ctx.strokeRect(side / 3, side / 3, side / 3, side / 3)
-  }, [img, rec, cell])
-  return <canvas ref={ref} className="zoom" />
-}
-
-// ------------------------------------------------------------------ list
-
-function ListPage(props: { counts: Map<string, number>; legend: Record<string, number> }) {
-  const { counts, legend } = props
-  const rows = [...counts].sort((a, b) => codeOrder(a[0], b[0]))
-  const total = rows.reduce((a, [, n]) => a + n, 0)
-  const [copied, setCopied] = useState(false)
-  const text = rows.map(([c, n]) => `${c}\t${n}`).join('\n')
-  return (
-    <div className="page">
       <section className="card list">
+        <div className="line head">
+          <span className="sub">
+            {chart.cols}×{chart.rows} · {rows.length} 色 · {total} 颗
+            {legendCodes.length > 0 && (off ? ` · ${off} 色与图例对不上` : ' · 与图例一致')}
+          </span>
+        </div>
         {rows.map(([code, n]) => (
           <div key={code} className="line">
-            <span className="swatch" style={{ background: css(CATALOGUE[code] ?? GREY) }} />
+            <span className="swatch" style={{ background: codeColour(code) }} />
             <b>{code}</b>
-            {legend[code] !== undefined && legend[code] !== n && <span className="sub">图例 {legend[code]}</span>}
+            {chart.legend[code] !== undefined && chart.legend[code] !== n && <span className="sub">图例 {chart.legend[code]}</span>}
             <span className="num">{n}</span>
           </div>
         ))}
-        <div className="line total">
-          <b>共 {rows.length} 色</b>
-          <span className="num">{total}</span>
-        </div>
       </section>
       <button
-        className="primary"
-        onClick={async () => {
-          await navigator.clipboard.writeText(text)
-          setCopied(true)
+        className="link danger"
+        onClick={() => {
+          if (window.confirm(`删除「${chart.title}」？删除后不能恢复。`)) onDelete()
         }}
       >
-        {copied ? '已复制' : '复制清单'}
+        删除这张图纸
       </button>
+    </div>
+  )
+}
+
+// ------------------------------------------------------------------ stock
+
+function StockPage() {
+  return (
+    <div className="page">
+      <header className="title flat">
+        <h1>库存</h1>
+      </header>
+      <section className="card empty">
+        <b>还没做</b>
+        <p className="hint">计划：按色号记豆子库存，图纸标成"已拼"时自动扣掉用量；也能勾几张图纸算一共要备多少豆子。</p>
+      </section>
+    </div>
+  )
+}
+
+// ------------------------------------------------------------------ settings
+
+function SettingsPage({ onRestored, count }: { onRestored: () => Promise<void>; count: number }) {
+  const [ai, setAi] = useState<AiSettings>(loadAiSettings)
+  const [saved, setSaved] = useState(false)
+  const [note, setNote] = useState('')
+  const [kept, setKept] = useState<boolean | null>(null)
+  const file = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    persist().then(setKept)
+  }, [])
+
+  return (
+    <div className="page">
+      <header className="title flat">
+        <h1>设置</h1>
+      </header>
+
+      <h2 className="sectiontitle">AI 读色号</h2>
+      <section className="card form">
+        <label className="field">
+          <span>OpenRouter API Key</span>
+          <input
+            type="password"
+            autoComplete="off"
+            value={ai.key}
+            onChange={(e) => {
+              setAi({ ...ai, key: e.target.value })
+              setSaved(false)
+            }}
+          />
+        </label>
+        <label className="field">
+          <span>模型 ID（在 OpenRouter 模型页复制）</span>
+          <input
+            value={ai.model}
+            onChange={(e) => {
+              setAi({ ...ai, model: e.target.value })
+              setSaved(false)
+            }}
+          />
+        </label>
+        <div className="row end">
+          {saved && <span className="sub">已保存</span>}
+          <button
+            className="primary small"
+            onClick={() => {
+              saveAiSettings(ai)
+              setSaved(true)
+            }}
+          >
+            保存
+          </button>
+        </div>
+        <p className="hint">Key 只存在这台设备的浏览器里。识别时只发送色号小图和图例，不发整张图纸。</p>
+      </section>
+
+      <h2 className="sectiontitle">数据</h2>
+      <section className="card form">
+        <p className="hint">
+          图纸库存在这台设备的浏览器里，共 {count} 张。
+          {kept === false && '浏览器没有答应长期保留这些数据：没装到主屏幕的网站，Safari 可能在 7 天没打开后清掉它们，记得定期导出备份。'}
+          {kept === true && '浏览器已答应长期保留这些数据。'}
+        </p>
+        <div className="row">
+          <button
+            className="primary small"
+            onClick={async () => {
+              setNote('正在导出…')
+              try {
+                const blob = await exportBackup()
+                const a = document.createElement('a')
+                a.href = URL.createObjectURL(blob)
+                const d = new Date()
+                a.download = `拼豆图纸备份-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}.json`
+                a.click()
+                setTimeout(() => URL.revokeObjectURL(a.href), 10000)
+                setNote(`已导出 ${count} 张图纸`)
+              } catch (e) {
+                setNote(`导出失败：${e instanceof Error ? e.message : String(e)}`)
+              }
+            }}
+          >
+            导出备份
+          </button>
+          <button className="link" onClick={() => file.current?.click()}>
+            从备份恢复
+          </button>
+          <input
+            ref={file}
+            type="file"
+            accept="application/json,.json"
+            hidden
+            onChange={async (e) => {
+              const f = e.target.files?.[0]
+              e.target.value = ''
+              if (!f) return
+              setNote('正在恢复…')
+              try {
+                const r = await importBackup(f)
+                await onRestored()
+                setNote(`恢复完成：新增 ${r.added} 张，更新 ${r.updated} 张，跳过 ${r.skipped} 张（这里的版本更新）`)
+              } catch (err) {
+                setNote(`恢复失败：${err instanceof Error ? err.message : String(err)}`)
+              }
+            }}
+          />
+        </div>
+        {note && <p className="hint">{note}</p>}
+      </section>
     </div>
   )
 }
