@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { type AiSettings, loadAiSettings, readCodesWithAi, saveAiSettings } from './ai'
 import { loadImage, paintLabel, renderText, toRaster } from './browser'
@@ -25,7 +25,12 @@ const codeOrder = (a: string, b: string) => {
 }
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>('import')
+  const [tab, setTabState] = useState<Tab>('import')
+  // each page starts at its top; the pages share one scroll position otherwise
+  const setTab = (t: Tab) => {
+    setTabState(t)
+    window.scrollTo(0, 0)
+  }
   const [img, setImg] = useState<HTMLImageElement | null>(null)
   const [rec, setRec] = useState<Recognition | null>(null)
   const [names, setNames] = useState<string[]>([])
@@ -34,15 +39,7 @@ export default function App() {
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [legendRect, setLegendRect] = useState<Rect | null>(null)
-  const bar = useRef<HTMLElement>(null)
-
-  // the legend panel sticks just under the top bar, whose height depends on the layout
-  useLayoutEffect(() => {
-    const set = () => bar.current && document.documentElement.style.setProperty('--bar-h', `${bar.current.offsetHeight}px`)
-    set()
-    window.addEventListener('resize', set)
-    return () => window.removeEventListener('resize', set)
-  }, [])
+  const picker = useRef<HTMLInputElement>(null)
 
   async function open(src: Blob | string) {
     setError('')
@@ -75,15 +72,9 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="bar" ref={bar}>
-        <h1>拼豆图纸</h1>
-        <nav className="segmented" role="tablist">
-          {TABS.map(([t, label]) => (
-            <button key={t} role="tab" aria-selected={tab === t} disabled={t !== 'import' && !(img && rec)} onClick={() => setTab(t)}>
-              {label}
-            </button>
-          ))}
-        </nav>
+      <header className="title">
+        <h1>{TABS.find(([t]) => t === tab)![1]}</h1>
+        {busy && <span className="sub">{busy}</span>}
       </header>
       <main>
         {tab === 'import' && <ImportPage img={img} rec={rec} names={names} assign={assign} busy={busy} error={error} onOpen={open} onNext={() => setTab('codes')} />}
@@ -93,7 +84,50 @@ export default function App() {
         {tab === 'wall' && img && rec && <WallPage img={img} rec={rec} names={names} assign={assign} counts={counts} legend={legend} onAssign={setAssign} onNames={setNames} />}
         {tab === 'list' && img && rec && <ListPage counts={counts} legend={legend} />}
       </main>
+      <input
+        ref={picker}
+        type="file"
+        accept="image/*"
+        hidden
+        onChange={(e) => {
+          const f = e.target.files?.[0]
+          e.target.value = ''
+          if (f) {
+            setTab('import')
+            open(f)
+          }
+        }}
+      />
+      <div className="dock">
+        <nav className="tabbar glass" role="tablist">
+          {TABS.map(([t, label]) => (
+            <button key={t} role="tab" aria-selected={tab === t} disabled={t !== 'import' && !(img && rec)} onClick={() => setTab(t)}>
+              <TabIcon tab={t} />
+              <span>{label}</span>
+            </button>
+          ))}
+        </nav>
+        <button className="fab glass" aria-label="导入新图纸" disabled={!!busy} onClick={() => picker.current?.click()}>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+        </button>
+      </div>
     </div>
+  )
+}
+
+function TabIcon({ tab }: { tab: Tab }) {
+  const paths: Record<Tab, string> = {
+    import: 'M4 16.5V8a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v8.5M4 16.5 8.5 12l3.5 3.5 2.5-2.5 5.5 5M4 16.5V17a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-.5M15.5 9h.01',
+    codes: 'M5 5h5v5H5zM14 5h5v5h-5zM5 14h5v5H5zM14 14h5v5h-5z',
+    wall: 'M9 12.5l2.2 2.2L15.5 10M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z',
+    list: 'M9 7h11M9 12h11M9 17h11M4.5 7h.01M4.5 12h.01M4.5 17h.01',
+  }
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d={paths[tab]} />
+    </svg>
   )
 }
 
@@ -240,15 +274,19 @@ function CodesPage(props: {
   const [sort, setSort] = useState<'count' | 'code'>('count')
   const [newCode, setNewCode] = useState('')
   const [newCount, setNewCount] = useState('')
+  // where the add row is open: under this group's row, or null for the end of the list
+  const [insertAt, setInsertAt] = useState<number | null>(null)
 
   // Legends are printed either by count or by code, so the list can follow either. The order is
   // recomputed when the mode changes or an edit is finished, not on every keystroke, so a row
   // does not jump away while its code is being typed.
+  // a colour the recogniser missed sorts by the count typed for it
+  const size = (code: string) => counts.get(code) || legend[code] || 0
   const sortedBy = (mode: 'count' | 'code', list: string[]) =>
     list
       .map((_, i) => i)
       .filter((i) => list[i])
-      .sort((x, y) => (mode === 'code' ? codeOrder(list[x], list[y]) : (counts.get(list[y]) ?? 0) - (counts.get(list[x]) ?? 0) || codeOrder(list[x], list[y])))
+      .sort((x, y) => (mode === 'code' ? codeOrder(list[x], list[y]) : size(list[y]) - size(list[x]) || codeOrder(list[x], list[y])))
   const [order, setOrder] = useState(() => sortedBy(sort, names))
   const resort = () => setOrder(sortedBy(sort, names))
   const changeSort = (mode: 'count' | 'code') => {
@@ -281,7 +319,10 @@ function CodesPage(props: {
   const add = () => {
     const next = [...names, addCode]
     onNames(next)
-    setOrder(sortedBy(sort, next))
+    // the new row stays where it was inserted, so it lines up with the legend being read
+    const at = insertAt === null ? -1 : order.indexOf(insertAt)
+    setOrder(at < 0 ? [...order, names.length] : [...order.slice(0, at + 1), names.length, ...order.slice(at + 1)])
+    setInsertAt(null)
     if (newCount.trim()) setCount(addCode, newCount)
     setNewCode('')
     setNewCount('')
@@ -291,6 +332,31 @@ function CodesPage(props: {
   const printed = Object.entries(legend).filter(([c]) => live.includes(c))
   const printedTotal = printed.reduce((x, [, n]) => x + n, 0)
   const mismatched = printed.filter(([c, n]) => (counts.get(c) ?? 0) !== n).length
+
+  const addRow = (
+    <div className="coderow add">
+      <span className="nolabel">新增</span>
+      <div className="codecell">
+        <input className="codeinput" placeholder="色号" value={newCode} onChange={(e) => setNewCode(e.target.value)} aria-label="新增色号" />
+        {newCode && !(addCode in CATALOGUE) && <span className="sub bad">不是 MARD 色号</span>}
+        {live.includes(addCode) && <span className="sub">已在列表里</span>}
+      </div>
+      <span className="num">0</span>
+      <div className="wantcell">
+        <input className="countinput" inputMode="numeric" placeholder="颗数" value={newCount} onChange={(e) => setNewCount(e.target.value.replace(/\D/g, ''))} aria-label="新增色号的图例颗数" />
+      </div>
+      <span className="rowactions">
+        <button className="link" disabled={!canAdd} onClick={add}>
+          添加
+        </button>
+        {insertAt !== null && (
+          <button className="link" onClick={() => setInsertAt(null)}>
+            取消
+          </button>
+        )}
+      </span>
+    </div>
+  )
 
   async function askAi() {
     setBusy(true)
@@ -387,7 +453,8 @@ function CodesPage(props: {
             const want = legend[code]
             const diff = want === undefined ? null : n - want
             return (
-              <div key={i} className="coderow">
+              <Fragment key={i}>
+              <div className="coderow">
                 {g ? <Label label={g.label} px={52} /> : <span className="nolabel">手动添加</span>}
                 <div className="codecell">
                   <span className="swatch" style={{ background: css(g?.colour ?? CATALOGUE[code] ?? GREY) }} />
@@ -413,40 +480,33 @@ function CodesPage(props: {
                   />
                   {diff !== null && <span className={diff === 0 ? 'diff ok' : 'diff off'}>{diff === 0 ? '一致' : diff > 0 ? `多 ${diff}` : `少 ${-diff}`}</span>}
                 </div>
-                <button
-                  className="link del"
-                  disabled={n > 0}
-                  title={n > 0 ? '这个色号下还有格子：把它改成正确的色号即可并入，或到核对页把格子移走' : '删除这个色号'}
-                  onClick={() => {
-                    const next = { ...legend }
-                    delete next[code]
-                    onLegend(next)
-                    onNames(names.map((v, k) => (k === i ? '' : v)))
-                  }}
-                >
-                  删除
-                </button>
+                <span className="rowactions">
+                  <button className="link" title="在这一行下面插入一个色号" aria-label={`在 ${code} 下面插入色号`} onClick={() => setInsertAt(i)}>
+                    插入
+                  </button>
+                  <button
+                    className="link del"
+                    disabled={n > 0}
+                    title={n > 0 ? '这个色号下还有格子：把它改成正确的色号即可并入，或到核对页把格子移走' : '删除这个色号'}
+                    onClick={() => {
+                      const next = { ...legend }
+                      delete next[code]
+                      onLegend(next)
+                      onNames(names.map((v, k) => (k === i ? '' : v)))
+                    }}
+                  >
+                    删除
+                  </button>
+                </span>
               </div>
+              {insertAt === i && addRow}
+              </Fragment>
             )
           })}
-        <div className="coderow add">
-          <span className="nolabel">新增</span>
-          <div className="codecell">
-            <input className="codeinput" placeholder="色号" value={newCode} onChange={(e) => setNewCode(e.target.value)} aria-label="新增色号" />
-            {newCode && !(addCode in CATALOGUE) && <span className="sub bad">不是 MARD 色号</span>}
-            {live.includes(addCode) && <span className="sub">已在列表里</span>}
-          </div>
-          <span className="num">0</span>
-          <div className="wantcell">
-            <input className="countinput" inputMode="numeric" placeholder="颗数" value={newCount} onChange={(e) => setNewCount(e.target.value.replace(/\D/g, ''))} aria-label="新增色号的图例颗数" />
-          </div>
-          <button className="link" disabled={!canAdd} onClick={add}>
-            添加
-          </button>
-        </div>
+        {insertAt === null && addRow}
       </section>
       <p className="hint">
-        "识别"是程序数出来的颗数，"图例"填图纸上印的颗数，两边对不上的会标出来，到核对页也会显示。程序漏掉的色号在最后一行新增，再到核对页把对应的格子改过去。还有格子的色号不能直接删：改成正确的色号就会并过去。
+        "识别"是程序数出来的颗数，"图例"填图纸上印的颗数，两边对不上的会标出来，到核对页也会显示。程序漏掉的色号：点任意一行的"插入"加在它下面，或在最后一行新增，再到核对页把对应的格子改过去。还有格子的色号不能直接删：改成正确的色号就会并过去。
       </p>
       <button className="primary" onClick={onNext}>
         下一步：逐格核对

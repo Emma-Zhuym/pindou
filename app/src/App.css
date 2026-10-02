@@ -1,13 +1,20 @@
+/* iOS 26 look: content on a quiet background, controls floating above it on glass, capsule
+   shapes, large concentric corners. */
 :root {
-  --bg: #f2f2f7;
+  --bg: #f3f4f2;
   --card: #ffffff;
-  --text: #1c1c1e;
-  --sub: #6e6e73;
-  --line: rgba(60, 60, 67, 0.16);
-  --fill: rgba(118, 118, 128, 0.12);
+  --text: #1d1d1f;
+  --sub: #6b6b70;
+  --line: rgba(60, 60, 67, 0.13);
+  --fill: rgba(120, 120, 128, 0.12);
   --accent: #007aff;
   --red: #d70015;
   --orange: #c93400;
+  --glass: rgba(255, 255, 255, 0.62);
+  --glass-edge: rgba(255, 255, 255, 0.7);
+  --glass-shadow: 0 10px 36px rgba(0, 0, 0, 0.13), 0 1px 3px rgba(0, 0, 0, 0.06);
+  --r-card: 26px;
+  --r-control: 14px;
   color-scheme: light dark;
 }
 @media (prefers-color-scheme: dark) {
@@ -17,10 +24,13 @@
     --text: #f5f5f7;
     --sub: #98989f;
     --line: rgba(84, 84, 88, 0.6);
-    --fill: rgba(118, 118, 128, 0.24);
+    --fill: rgba(120, 120, 128, 0.26);
     --accent: #0a84ff;
     --red: #ff453a;
     --orange: #ff9f0a;
+    --glass: rgba(44, 44, 46, 0.62);
+    --glass-edge: rgba(255, 255, 255, 0.14);
+    --glass-shadow: 0 10px 36px rgba(0, 0, 0, 0.5);
   }
 }
 
@@ -31,7 +41,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 15px/1.45 -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif;
+  font: 16px/1.45 -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 button,
@@ -39,68 +49,130 @@ input {
   font: inherit;
   color: inherit;
 }
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 
-.bar {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: calc(10px + env(safe-area-inset-top)) 16px 10px;
-  background: color-mix(in srgb, var(--bg) 82%, transparent);
-  backdrop-filter: saturate(180%) blur(20px);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
-  border-bottom: 0.5px solid var(--line);
+.glass {
+  background: var(--glass);
+  border: 1px solid var(--glass-edge);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-edge);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
 }
-.bar h1 {
+
+/* ---------------------------------------------------------------- chrome */
+
+.title {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: calc(20px + env(safe-area-inset-top)) 20px 4px;
+}
+.title h1 {
   margin: 0;
-  font-size: 17px;
-  font-weight: 600;
-  white-space: nowrap;
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
 }
-.segmented {
+
+.dock {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(18px + env(safe-area-inset-bottom));
+  z-index: 15;
   display: flex;
-  flex: 1;
-  max-width: 420px;
-  margin-left: auto;
-  padding: 2px;
-  border-radius: 9px;
-  background: var(--fill);
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  pointer-events: none;
 }
-.segmented button {
-  flex: 1;
-  min-height: 30px;
+.dock > * {
+  pointer-events: auto;
+}
+.tabbar {
+  display: flex;
+  gap: 2px;
+  padding: 5px;
+  border-radius: 999px;
+}
+.tabbar button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 74px;
+  height: 56px;
   border: 0;
-  border-radius: 7px;
+  border-radius: 999px;
   background: transparent;
-  font-size: 13px;
+  color: var(--text);
+  font-size: 11px;
   font-weight: 500;
   cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
 }
-.segmented button[aria-selected='true'] {
-  background: var(--card);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+.tabbar button[aria-selected='true'] {
+  background: var(--fill);
+  color: var(--accent);
   font-weight: 600;
 }
-.segmented button:disabled {
-  color: var(--sub);
-  opacity: 0.5;
+.tabbar button:disabled {
+  opacity: 0.35;
   cursor: default;
 }
+.tabbar svg,
+.fab svg {
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.fab {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 66px;
+  height: 66px;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.fab svg {
+  width: 28px;
+  height: 28px;
+  stroke-width: 2.1;
+}
+.fab:disabled {
+  opacity: 0.4;
+}
+
+/* ---------------------------------------------------------------- shared */
 
 .page {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
   max-width: 960px;
   margin: 0 auto;
-  padding: 16px 16px calc(32px + env(safe-area-inset-bottom));
+  padding: 12px 16px calc(130px + env(safe-area-inset-bottom));
 }
 .card {
   background: var(--card);
-  border-radius: 12px;
-  padding: 14px;
+  border-radius: var(--r-card);
+  padding: 16px;
 }
 .hint,
 .sub {
@@ -115,15 +187,93 @@ input {
 .error {
   margin: 0;
 }
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.num {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+.swatch {
+  display: inline-block;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 7px;
+  border: 0.5px solid var(--line);
+}
+
+.link {
+  min-height: 34px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+}
+.link:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.primary {
+  min-height: 52px;
+  padding: 0 24px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 17px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.primary.small {
+  min-height: 38px;
+  padding: 0 18px;
+  font-size: 15px;
+}
+.primary:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.segmented {
+  display: flex;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--fill);
+}
+.segmented button {
+  flex: 1;
+  min-height: 32px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.segmented button[aria-selected='true'] {
+  background: var(--card);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.14);
+  font-weight: 600;
+}
+.segmented.small {
+  flex: none;
+  width: 190px;
+}
+
+/* ---------------------------------------------------------------- import */
 
 .drop {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  padding: 28px 16px;
+  padding: 30px 16px;
   border: 1.5px dashed var(--line);
-  border-radius: 12px;
+  border-radius: var(--r-card);
   background: var(--card);
   cursor: pointer;
   text-align: center;
@@ -142,46 +292,10 @@ input {
   flex-wrap: wrap;
   align-items: center;
   gap: 4px 12px;
+  padding: 0 4px;
   color: var(--sub);
   font-size: 13px;
 }
-
-.link {
-  min-height: 32px;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--accent);
-  cursor: pointer;
-}
-.link:disabled {
-  opacity: 0.4;
-}
-.primary {
-  min-height: 48px;
-  border: 0;
-  border-radius: 12px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 17px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.primary.small {
-  min-height: 36px;
-  padding: 0 16px;
-  font-size: 15px;
-}
-.primary:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-button:focus-visible,
-input:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
 .stats {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -192,8 +306,8 @@ input:focus-visible {
   flex-direction: column;
 }
 .stats b {
-  font-size: 20px;
-  font-weight: 600;
+  font-size: 22px;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 .stats span {
@@ -214,11 +328,10 @@ input:focus-visible {
   display: block;
   width: 100%;
   height: auto;
-  border-radius: 8px;
-  image-rendering: pixelated;
+  border-radius: 14px;
 }
-.compare img {
-  image-rendering: auto;
+.compare canvas {
+  image-rendering: pixelated;
 }
 .compare figcaption {
   margin-top: 6px;
@@ -227,31 +340,29 @@ input:focus-visible {
   text-align: center;
 }
 
-.swatch {
-  display: inline-block;
-  flex: none;
-  width: 18px;
-  height: 18px;
-  border-radius: 5px;
-  border: 0.5px solid var(--line);
-}
+/* ---------------------------------------------------------------- codes */
 
 .legendpanel {
   position: sticky;
-  top: calc(var(--bar-h, 52px) + 8px);
+  top: calc(8px + env(safe-area-inset-top));
   z-index: 4;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  padding: 12px 14px;
+  background: var(--glass);
+  border: 1px solid var(--glass-edge);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-edge);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
 }
-.legendpanel .row {
+.legendpanel > .row {
   justify-content: space-between;
 }
 .legendscroll {
   max-height: 30vh;
   overflow: auto;
-  border-radius: 8px;
+  border-radius: 14px;
   background: #fff;
 }
 .legendscroll canvas {
@@ -261,78 +372,46 @@ input:focus-visible {
   flex: 1;
   accent-color: var(--accent);
 }
-.sheetbody.wide {
-  width: min(900px, 100%);
-}
-.cropstage {
-  position: relative;
-  display: inline-block;
-  max-width: 100%;
-  line-height: 0;
-  touch-action: none;
-  cursor: crosshair;
-  user-select: none;
-  -webkit-user-select: none;
-}
-/* the whole image stays in view: the legend is at the bottom and the stage cannot scroll while
-   a drag draws the box */
-.cropstage img {
-  display: block;
-  width: auto;
-  max-width: 100%;
-  max-height: 62vh;
-}
-.cropbox {
-  position: absolute;
-  border: 2px solid var(--accent);
-  background: rgba(0, 122, 255, 0.16);
-  pointer-events: none;
-}
 
 .aiform {
   display: grid;
   gap: 8px;
   margin-top: 8px;
 }
-.aiform input {
-  min-height: 36px;
-  padding: 0 10px;
+.aiform input,
+.newcode input,
+.codeinput,
+.countinput {
+  min-height: 38px;
+  padding: 0 12px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--r-control);
   background: var(--fill);
 }
-.row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
+
 .listhead {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 16px;
-}
-.segmented.small {
-  flex: none;
-  width: 180px;
-  margin-left: 0;
+  padding: 0 4px;
 }
 .codelist {
-  padding: 0 14px;
+  padding: 2px 16px;
 }
 .coderow {
   display: grid;
-  grid-template-columns: 52px minmax(0, 1fr) 56px 150px 44px;
+  grid-template-columns: 52px minmax(0, 1fr) 56px 150px 84px;
   align-items: center;
   gap: 12px;
-  min-height: 64px;
+  min-height: 68px;
   border-bottom: 0.5px solid var(--line);
 }
 .coderow:last-child {
   border-bottom: 0;
 }
 .coderow.head {
-  min-height: 34px;
+  min-height: 36px;
   color: var(--sub);
   font-size: 12px;
 }
@@ -340,9 +419,14 @@ input:focus-visible {
   margin-left: 0;
   text-align: right;
 }
+.coderow.add {
+  margin: 0 -16px;
+  padding: 0 16px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
 .label {
   flex: none;
-  border-radius: 6px;
+  border-radius: 10px;
   background: #fff;
 }
 .nolabel {
@@ -361,21 +445,13 @@ input:focus-visible {
 .wantcell {
   justify-content: flex-end;
 }
-.codeinput,
-.countinput {
-  min-height: 36px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 8px;
-  background: var(--fill);
-}
 .codeinput {
-  width: 76px;
+  width: 80px;
   font-size: 17px;
   font-weight: 600;
 }
 .countinput {
-  width: 68px;
+  width: 70px;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -398,15 +474,23 @@ input:focus-visible {
 .diff.off {
   color: var(--orange);
 }
+.rowactions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  white-space: nowrap;
+}
 .del:disabled {
   color: var(--sub);
 }
+
+/* ---------------------------------------------------------------- wall */
 
 .toggle {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 15px;
+  padding: 0 4px;
 }
 .wall header {
   display: flex;
@@ -419,10 +503,29 @@ input:focus-visible {
 }
 .tiles {
   overflow: hidden;
+  border-radius: 12px;
 }
 .tiles canvas {
   display: block;
   cursor: pointer;
+}
+.actionbar {
+  position: fixed;
+  left: 50%;
+  bottom: calc(100px + env(safe-area-inset-bottom));
+  z-index: 16;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 7px 7px 7px 20px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 999px;
+  background: var(--glass);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-edge);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  transform: translateX(-50%);
+  white-space: nowrap;
 }
 
 .sheet {
@@ -432,28 +535,36 @@ input:focus-visible {
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.35);
+  padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+  background: rgba(0, 0, 0, 0.28);
 }
 .sheetbody {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   width: min(560px, 100%);
-  max-height: 86vh;
+  max-height: 88vh;
   overflow: auto;
-  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
-  border-radius: 16px 16px 0 0;
-  background: var(--card);
+  padding: 20px 16px 16px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 36px;
+  background: color-mix(in srgb, var(--card) 86%, transparent);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(30px) saturate(190%);
+  -webkit-backdrop-filter: blur(30px) saturate(190%);
+}
+.sheetbody.wide {
+  width: min(900px, 100%);
 }
 .zoom {
   width: 180px;
   height: 180px;
-  border-radius: 10px;
+  border-radius: 20px;
 }
 .choices {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
   gap: 8px;
   width: 100%;
 }
@@ -461,64 +572,81 @@ input:focus-visible {
   display: flex;
   align-items: center;
   gap: 6px;
-  min-height: 44px;
-  padding: 0 10px;
+  min-height: 46px;
+  padding: 0 12px;
   border: 0;
-  border-radius: 10px;
+  border-radius: 999px;
   background: var(--fill);
   font-weight: 600;
   cursor: pointer;
-}
-
-.actionbar {
-  position: sticky;
-  bottom: calc(12px + env(safe-area-inset-bottom));
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  align-self: center;
-  padding: 8px 8px 8px 16px;
-  border-radius: 14px;
-  background: var(--card);
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
 }
 .newcode {
   width: 100%;
 }
 .newcode input {
   flex: 1;
-  min-height: 36px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 8px;
-  background: var(--fill);
+}
+.cropstage {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  line-height: 0;
+  touch-action: none;
+  cursor: crosshair;
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* the whole image stays in view: the legend is at the bottom and the stage cannot scroll while
+   a drag draws the box */
+.cropstage img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  max-height: 62vh;
+  border-radius: 14px;
+}
+.cropbox {
+  position: absolute;
+  border: 2px solid var(--accent);
+  background: rgba(0, 122, 255, 0.16);
+  pointer-events: none;
 }
 
+/* ---------------------------------------------------------------- list */
+
 .list {
-  padding: 0 14px;
+  padding: 2px 16px;
 }
 .line {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 44px;
+  min-height: 48px;
   border-bottom: 0.5px solid var(--line);
 }
 .line:last-child {
   border-bottom: 0;
-}
-.num {
-  margin-left: auto;
-  font-variant-numeric: tabular-nums;
 }
 .total {
   font-weight: 600;
 }
 
 @media (max-width: 520px) {
+  .title h1 {
+    font-size: 30px;
+  }
+  .tabbar button {
+    min-width: 60px;
+  }
+  .fab {
+    width: 60px;
+    height: 60px;
+  }
+  .compare {
+    grid-template-columns: 1fr;
+  }
   .coderow {
-    grid-template-columns: 44px minmax(0, 1fr) 40px 104px 36px;
+    grid-template-columns: 44px minmax(0, 1fr) 36px 96px 68px;
     gap: 8px;
   }
   .codeinput {
@@ -530,16 +658,9 @@ input:focus-visible {
   .diff {
     min-width: 0;
   }
-  .bar {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
-  }
-  .segmented {
-    max-width: none;
-    margin-left: 0;
-  }
-  .compare {
-    grid-template-columns: 1fr;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tabbar button {
+    transition: none;
   }
 }
