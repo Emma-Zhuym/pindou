@@ -12,7 +12,9 @@ from pathlib import Path
 import numpy as np
 
 from engine import INK, find_board, find_grid, greedy, load, read_cells
+from geometry import geometry
 from glyphs import ALL, B, fit, make_reader
+from legend import read_legend
 
 HERE = Path(__file__).resolve().parent
 HEX = {}
@@ -29,7 +31,12 @@ SAMPLES = {
     'tree': dict(file='tree-52x64.jpg', size=(52, 64), gaps=True,
                  legend={'B23': 637, 'B17': 362, 'B11': 214, 'H7': 210, 'B32': 66, 'B15': 59, 'B29': 43, 'H16': 16,
                          'G17': 13, 'H2': 5, 'B22': 3, 'F11': 3, 'H17': 1}),
-    'landscape': dict(file='landscape-84x84.jpg', size=(84, 84), legend=None),
+    'landscape': dict(file='landscape-84x84.jpg', size=(84, 84),
+                      legend={'A3': 118, 'A6': 176, 'A7': 287, 'A8': 320, 'A15': 757, 'A22': 24, 'A26': 48, 'B1': 267, 'B7': 80,
+                              'B8': 557, 'B9': 447, 'B11': 143, 'B13': 100, 'B15': 55, 'B18': 78, 'B19': 125, 'B21': 60,
+                              'B26': 171, 'B29': 151, 'B32': 499, 'C3': 190, 'C19': 77, 'C24': 731, 'C27': 76, 'F8': 138,
+                              'F10': 94, 'F11': 132, 'F13': 328, 'F19': 29, 'G7': 206, 'G8': 135, 'G13': 35, 'G17': 22,
+                              'G19': 265, 'H12': 135}),
     'portrait': dict(file='portrait-50x70.jpg', size=(50, 70), legend=None),
 }
 
@@ -40,13 +47,20 @@ def unit(m):
     return m / (np.linalg.norm(m, axis=(-1, -2), keepdims=True) + 1e-6)
 
 
-def name_group(read, stack, colour, taken=None):
+def name_group(read, stack, colour, n=0, hint=None):
     """Glyph match first; among near-ties the code whose catalogue colour is closest wins."""
     scores = read.all(stack)
     cd = np.array([np.abs(HEX[c] - colour).sum() for c in ALL])
     # the label decides; catalogue colour only settles look-alike digits (H2/H3, E16/E18) and
     # vetoes codes whose bead colour is nowhere near this fill
     total = scores - cd / 1500.0 - (cd > 170) * 1.0
+    if hint and hint['codes']:
+        # whatever could be read off the legend is a hint, not a rule: OCR of small print is patchy
+        for k, c in enumerate(ALL):
+            if c in hint['codes']:
+                total[k] += 0.05
+                if any(abs(v - n) <= max(3, 0.12 * v) for v in hint['pairs'].get(c, [])):
+                    total[k] += 0.05
     i = int(np.argmax(total))
     code, top = ALL[i], scores[i]
     return code, float(top), float(np.abs(HEX[code] - colour).sum())
@@ -58,24 +72,28 @@ def read_ok(stack):
     return m.max() - np.median(m) > 0.25
 
 
-def recognise(key, verbose=True):
+def recognise(key, verbose=True, use_legend=True):
     cfg = SAMPLES[key]
+    geo = geometry(key, cfg['file'])
+    grid = geo['grid']
     cache = HERE / 'out' / f'{key}.npz'
     if cache.exists():
         z = np.load(cache)
         fill, ink, share = z['fill'], z['ink'], z['share']
     else:
         im, a = load(cfg['file'])
-        grid = find_grid(a)
-        r0, c0, nr, nc = find_board(a, grid)
-        # keep whole cells that lie inside the image
-        H, W = a.shape[:2]
-        while grid[3] + r0 * grid[2] < -0.5: r0, nr = r0 + 1, nr - 1
-        while grid[1] + c0 * grid[0] < -0.5: c0, nc = c0 + 1, nc - 1
-        while grid[3] + (r0 + nr) * grid[2] > H + 0.5: nr -= 1
-        while grid[1] + (c0 + nc) * grid[0] > W + 0.5: nc -= 1
-        fill, ink, share = read_cells(im, a, grid, r0, c0, nr, nc)
+        fill, ink, share = read_cells(im, a, grid, geo['r0'], geo['c0'], geo['nr'], geo['nc'])
         np.savez(cache, fill=fill, ink=ink, share=share)
+    hint_path = HERE / 'out' / f'{key}.legend.json'
+    if hint_path.exists():
+        hint = json.load(open(hint_path))
+    else:
+        im, _ = load(cfg['file'])
+        lc, lp, _ = read_legend(im, grid[3] + (geo['r0'] + geo['nr']) * grid[2] + 2)
+        hint = dict(codes=sorted(lc), pairs={c: sorted(v) for c, v in lp.items()})
+        json.dump(hint, open(hint_path, 'w'))
+    if not use_legend:
+        hint = dict(codes=[], pairs={})
 
     # the numbered border, where a chart has one, is a flat colour that the picture itself does not use
     def is_border(line, inner):
@@ -109,7 +127,7 @@ def recognise(key, verbose=True):
     groups = {}  # code -> list of cluster ids
     for j in order:
         scores = read.all(stacks[j])
-        code, score, cdist = name_group(read, stacks[j], cents[j])
+        code, score, cdist = name_group(read, stacks[j], cents[j], counts[j], hint)
         # do the member cells agree with their own average? watermark debris does not
         coh = float((U[lab == j] @ unit(stacks[j]).reshape(-1)).mean()) if counts[j] >= 3 else 1.0
         verdict = 'skip'
@@ -130,7 +148,7 @@ def recognise(key, verbose=True):
                 verdict = 'merge'
             elif score >= 0.9 and coh >= 0.5 and cdist < 120:
                 verdict = 'new'
-        if verbose and (counts[j] >= 3 or verdict == 'new'):
+        if verbose > 1 and (counts[j] >= 3 or verdict == 'new'):
             print(f'     n={counts[j]:5d} rgb {tuple(int(v) for v in cents[j])} -> {code:4s} glyph {score:.2f} colour-off {cdist:3.0f} agree {coh:.2f}  {verdict}')
         if verdict != 'skip':
             groups.setdefault(code, []).append(j)
@@ -176,5 +194,6 @@ def recognise(key, verbose=True):
 
 
 if __name__ == '__main__':
-    for k in (sys.argv[1:] or list(SAMPLES)):
-        recognise(k)
+    args = [x for x in sys.argv[1:] if not x.startswith('-')]
+    for k in (args or list(SAMPLES)):
+        recognise(k, verbose=2 if '-v' in sys.argv else 1, use_legend='--no-legend' not in sys.argv)

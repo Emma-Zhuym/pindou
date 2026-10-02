@@ -9,9 +9,10 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 from engine import INK
 from labels import CODES
 
-FONTS = ['/System/Library/Fonts/Supplemental/Arial Bold.ttf', '/System/Library/Fonts/Supplemental/Arial.ttf',
-         '/System/Library/Fonts/Supplemental/Verdana Bold.ttf', '/System/Library/Fonts/Supplemental/Tahoma Bold.ttf',
-         '/System/Library/Fonts/Supplemental/DIN Alternate Bold.ttf']
+_SUP = '/System/Library/Fonts/Supplemental/'
+# monospace and rounded faces were tried for pixel-font charts and did not improve the naming
+FONTS = [_SUP + 'Arial Bold.ttf', _SUP + 'Arial.ttf', _SUP + 'Verdana Bold.ttf', _SUP + 'Tahoma Bold.ttf',
+         _SUP + 'DIN Alternate Bold.ttf']
 ALL = sorted(CODES)
 SS = 4
 B = 4  # ignore the cell border (grid lines) when comparing
