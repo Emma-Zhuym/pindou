@@ -294,51 +294,112 @@ input:focus-visible {
   gap: 8px;
   margin-top: 8px;
 }
-.aiform input,
-.code input {
+.aiform input {
   min-height: 36px;
   padding: 0 10px;
   border: 0;
   border-radius: 8px;
   background: var(--fill);
 }
-.codes {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-  gap: 10px;
-}
-.code {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  padding: 10px;
-}
-.label {
-  flex: none;
-  border-radius: 8px;
-  background: #fff;
-}
-.codeinfo {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
 .row {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-.code input {
+.listhead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+.segmented.small {
+  flex: none;
+  width: 180px;
+  margin-left: 0;
+}
+.codelist {
+  padding: 0 14px;
+}
+.coderow {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) 56px 150px 44px;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  border-bottom: 0.5px solid var(--line);
+}
+.coderow:last-child {
+  border-bottom: 0;
+}
+.coderow.head {
+  min-height: 34px;
+  color: var(--sub);
+  font-size: 12px;
+}
+.coderow .num {
+  margin-left: 0;
+  text-align: right;
+}
+.label {
+  flex: none;
+  border-radius: 6px;
+  background: #fff;
+}
+.nolabel {
+  color: var(--sub);
+  font-size: 12px;
+  text-align: center;
+}
+.codecell,
+.wantcell {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+}
+.wantcell {
+  justify-content: flex-end;
+}
+.codeinput,
+.countinput {
+  min-height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--fill);
+}
+.codeinput {
   width: 76px;
   font-size: 17px;
   font-weight: 600;
 }
-.code input.bad {
+.countinput {
+  width: 68px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.codeinput.bad {
   box-shadow: inset 0 0 0 1.5px var(--red);
 }
-.code input.warn {
+.codeinput.warn {
   box-shadow: inset 0 0 0 1.5px var(--orange);
+}
+.diff {
+  min-width: 44px;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: right;
+}
+.diff.ok {
+  color: var(--sub);
+  font-weight: 400;
+}
+.diff.off {
+  color: var(--orange);
+}
+.del:disabled {
+  color: var(--sub);
 }
 
 .toggle {
@@ -456,6 +517,19 @@ input:focus-visible {
 }
 
 @media (max-width: 520px) {
+  .coderow {
+    grid-template-columns: 44px minmax(0, 1fr) 40px 104px 36px;
+    gap: 8px;
+  }
+  .codeinput {
+    width: 64px;
+  }
+  .countinput {
+    width: 56px;
+  }
+  .diff {
+    min-width: 0;
+  }
   .bar {
     flex-direction: column;
     align-items: stretch;

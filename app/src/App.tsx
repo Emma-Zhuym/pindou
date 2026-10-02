@@ -225,8 +225,8 @@ function CodesPage(props: {
   names: string[]
   counts: Map<string, number>
   legend: Record<string, number>
-  onNames: (n: string[]) => void
   legendRect: Rect | null
+  onNames: (n: string[]) => void
   onLegend: (l: Record<string, number>) => void
   onLegendRect: (r: Rect | null) => void
   onNext: () => void
@@ -237,10 +237,60 @@ function CodesPage(props: {
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
   const [showAi, setShowAi] = useState(false)
+  const [sort, setSort] = useState<'count' | 'code'>('count')
+  const [newCode, setNewCode] = useState('')
+  const [newCount, setNewCount] = useState('')
 
-  // order is fixed when the page opens so cards do not jump around while names are edited
-  const [order] = useState(() => rec.groups.map((_, i) => i).sort((a, b) => (counts.get(names[b]) ?? 0) - (counts.get(names[a]) ?? 0)))
-  const dupes = new Set(names.filter((n, i) => names.indexOf(n) !== i))
+  // Legends are printed either by count or by code, so the list can follow either. The order is
+  // recomputed when the mode changes or an edit is finished, not on every keystroke, so a row
+  // does not jump away while its code is being typed.
+  const sortedBy = (mode: 'count' | 'code', list: string[]) =>
+    list
+      .map((_, i) => i)
+      .filter((i) => list[i])
+      .sort((x, y) => (mode === 'code' ? codeOrder(list[x], list[y]) : (counts.get(list[y]) ?? 0) - (counts.get(list[x]) ?? 0) || codeOrder(list[x], list[y])))
+  const [order, setOrder] = useState(() => sortedBy(sort, names))
+  const resort = () => setOrder(sortedBy(sort, names))
+  const changeSort = (mode: 'count' | 'code') => {
+    setSort(mode)
+    setOrder(sortedBy(mode, names))
+  }
+
+  const live = names.filter(Boolean)
+  const dupes = new Set(live.filter((n, i) => live.indexOf(n) !== i))
+  const setCount = (code: string, text: string) => {
+    const next = { ...legend }
+    const n = Number(text)
+    if (text.trim() === '' || !Number.isFinite(n) || n < 0) delete next[code]
+    else next[code] = Math.round(n)
+    onLegend(next)
+  }
+  const rename = (i: number, text: string) => {
+    const code = text.toUpperCase().trim()
+    const old = names[i]
+    // the count typed for a row follows the row when its code is corrected
+    if (old in legend && !(code in legend) && !names.some((n, k) => k !== i && n === old)) {
+      const next = { ...legend, [code]: legend[old] }
+      delete next[old]
+      onLegend(next)
+    }
+    onNames(names.map((v, k) => (k === i ? code : v)))
+  }
+  const addCode = newCode.toUpperCase().trim()
+  const canAdd = addCode in CATALOGUE && !live.includes(addCode)
+  const add = () => {
+    const next = [...names, addCode]
+    onNames(next)
+    setOrder(sortedBy(sort, next))
+    if (newCount.trim()) setCount(addCode, newCount)
+    setNewCode('')
+    setNewCount('')
+  }
+
+  const found = [...counts.values()].reduce((x, y) => x + y, 0)
+  const printed = Object.entries(legend).filter(([c]) => live.includes(c))
+  const printedTotal = printed.reduce((x, [, n]) => x + n, 0)
+  const mismatched = printed.filter(([c, n]) => (counts.get(c) ?? 0) !== n).length
 
   async function askAi() {
     setBusy(true)
@@ -255,7 +305,8 @@ function CodesPage(props: {
         return c ?? n
       })
       onNames(next)
-      onLegend(reading.legend)
+      setOrder(sortedBy(sort, next))
+      onLegend({ ...legend, ...reading.legend })
       const missed = reading.codes.filter((c) => !c).length
       const read = Object.keys(reading.legend).length
       setNote(`AI 改了 ${changed} 个色号${missed ? `，有 ${missed} 个没读出来（保留原判断）` : ''}${read ? `，并读到图例上 ${read} 个色号的颗数` : ''}`)
@@ -287,10 +338,9 @@ function CodesPage(props: {
           onCancel={() => setCropping(false)}
         />
       )}
-      <p className="hint">每张卡片是一种颜色：左边是这种颜色所有格子叠在一起后的色号，右边是程序读出的名字。名字不对就直接改，整组一起改。</p>
       <section className="card ai">
         <button className="link" onClick={() => setShowAi(!showAi)}>
-          {showAi ? '收起' : '让 AI 读色号（可选）'}
+          {showAi ? '收起' : '让 AI 读色号和颗数（可选）'}
         </button>
         {showAi && (
           <div className="aiform">
@@ -299,40 +349,105 @@ function CodesPage(props: {
             <button className="primary small" disabled={busy || !ai.key || !ai.model} onClick={askAi}>
               {busy ? '读取中…' : '读色号'}
             </button>
-            <p className="hint">只发送这一页的色号小图和图纸底部的图例，不发整张图纸。Key 只存在这台设备上。</p>
+            <p className="hint">只发送色号小图和上面这块图例，不发整张图纸。Key 只存在这台设备上。</p>
           </div>
         )}
         {note && <p className="hint">{note}</p>}
       </section>
-      <div className="codes">
-        {order.map((i) => {
-          const g = rec.groups[i]
-          const valid = names[i] in CATALOGUE
-          const n = counts.get(names[i]) ?? 0
-          const want = legend[names[i]]
-          return (
-            <div key={i} className="card code">
-              <Label label={g.label} />
-              <div className="codeinfo">
-                <div className="row">
-                  <span className="swatch" style={{ background: css(g.colour) }} />
+
+      <div className="listhead">
+        <div className="segmented small" role="tablist" aria-label="排序">
+          <button role="tab" aria-selected={sort === 'count'} onClick={() => changeSort('count')}>
+            按数量
+          </button>
+          <button role="tab" aria-selected={sort === 'code'} onClick={() => changeSort('code')}>
+            按色号
+          </button>
+        </div>
+        <span className="sub">
+          {live.length} 色，识别 {found} 颗{printed.length > 0 && `；图例已填 ${printed.length} 色共 ${printedTotal} 颗，${mismatched ? `${mismatched} 个对不上` : '全部对上'}`}
+        </span>
+      </div>
+
+      <section className="card codelist">
+        <div className="coderow head">
+          <span />
+          <span>色号</span>
+          <span className="num">识别</span>
+          <span className="num">图例</span>
+          <span />
+        </div>
+        {order
+          .filter((i) => names[i])
+          .map((i) => {
+            const g = rec.groups[i]
+            const code = names[i]
+            const valid = code in CATALOGUE
+            const n = counts.get(code) ?? 0
+            const want = legend[code]
+            const diff = want === undefined ? null : n - want
+            return (
+              <div key={i} className="coderow">
+                {g ? <Label label={g.label} px={52} /> : <span className="nolabel">手动添加</span>}
+                <div className="codecell">
+                  <span className="swatch" style={{ background: css(g?.colour ?? CATALOGUE[code] ?? GREY) }} />
                   <input
-                    className={!valid ? 'bad' : dupes.has(names[i]) ? 'warn' : ''}
-                    value={names[i]}
-                    onChange={(e) => onNames(names.map((v, k) => (k === i ? e.target.value.toUpperCase().trim() : v)))}
+                    className={!valid ? 'codeinput bad' : dupes.has(code) ? 'codeinput warn' : 'codeinput'}
+                    value={code}
+                    onChange={(e) => rename(i, e.target.value)}
+                    onBlur={resort}
                     aria-label="色号"
                   />
+                  {!valid && <span className="sub bad">不是 MARD 色号</span>}
+                  {valid && dupes.has(code) && <span className="sub">同名，已合并</span>}
                 </div>
-                <span className="sub">
-                  {n} 颗{want !== undefined && (want === n ? '，与图例一致' : `，图例 ${want}`)}
-                </span>
-                {!valid && <span className="sub bad">不是 MARD 色号</span>}
-                {valid && dupes.has(names[i]) && <span className="sub">与另一组同名，会合并</span>}
+                <span className="num">{n}</span>
+                <div className="wantcell">
+                  <input
+                    className="countinput"
+                    inputMode="numeric"
+                    placeholder="—"
+                    value={want ?? ''}
+                    onChange={(e) => setCount(code, e.target.value.replace(/\D/g, ''))}
+                    aria-label={`${code} 图例颗数`}
+                  />
+                  {diff !== null && <span className={diff === 0 ? 'diff ok' : 'diff off'}>{diff === 0 ? '一致' : diff > 0 ? `多 ${diff}` : `少 ${-diff}`}</span>}
+                </div>
+                <button
+                  className="link del"
+                  disabled={n > 0}
+                  title={n > 0 ? '这个色号下还有格子：把它改成正确的色号即可并入，或到核对页把格子移走' : '删除这个色号'}
+                  onClick={() => {
+                    const next = { ...legend }
+                    delete next[code]
+                    onLegend(next)
+                    onNames(names.map((v, k) => (k === i ? '' : v)))
+                  }}
+                >
+                  删除
+                </button>
               </div>
-            </div>
-          )
-        })}
-      </div>
+            )
+          })}
+        <div className="coderow add">
+          <span className="nolabel">新增</span>
+          <div className="codecell">
+            <input className="codeinput" placeholder="色号" value={newCode} onChange={(e) => setNewCode(e.target.value)} aria-label="新增色号" />
+            {newCode && !(addCode in CATALOGUE) && <span className="sub bad">不是 MARD 色号</span>}
+            {live.includes(addCode) && <span className="sub">已在列表里</span>}
+          </div>
+          <span className="num">0</span>
+          <div className="wantcell">
+            <input className="countinput" inputMode="numeric" placeholder="颗数" value={newCount} onChange={(e) => setNewCount(e.target.value.replace(/\D/g, ''))} aria-label="新增色号的图例颗数" />
+          </div>
+          <button className="link" disabled={!canAdd} onClick={add}>
+            添加
+          </button>
+        </div>
+      </section>
+      <p className="hint">
+        "识别"是程序数出来的颗数，"图例"填图纸上印的颗数，两边对不上的会标出来，到核对页也会显示。程序漏掉的色号在最后一行新增，再到核对页把对应的格子改过去。还有格子的色号不能直接删：改成正确的色号就会并过去。
+      </p>
       <button className="primary" onClick={onNext}>
         下一步：逐格核对
       </button>
@@ -531,7 +646,7 @@ function WallPage(props: {
     return [...m].sort((a, b) => codeOrder(a[0], b[0]))
   }, [assign, names, rec])
 
-  const codes = [...new Set(names)].sort(codeOrder)
+  const codes = [...new Set(names.filter(Boolean))].sort(codeOrder)
   const toggle = (cell: number) => {
     const next = new Set(selected)
     if (!next.delete(cell)) next.add(cell)
