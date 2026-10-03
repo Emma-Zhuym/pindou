@@ -115,12 +115,12 @@ export function findSwatchesByColour(img: Raster, rec: Recognition, trace?: (sta
   const boardColours: Rgb[] = []
   colours.count.forEach((_, k) => boardColours.push({ r: colours.centre[k * 3], g: colours.centre[k * 3 + 1], b: colours.centre[k * 3 + 2] }))
 
-  // swatch-shaped: at least a third of a cell across, not huge, roughly compact, a solid outline
+  // swatch-shaped: at least a third of a cell across, at most a dozen (some legends print big tiles), roughly compact, a solid outline
   // (a printed code inside only leaves holes)
   const shaped = patches(small, board).filter((p) => {
     const w = p.x1 - p.x0 + 1
     const h = p.y1 - p.y0 + 1
-    return w >= cell * 0.35 && h >= cell * 0.35 && w <= cell * 6 && h <= cell * 6 && w / h < 3.5 && h / w < 3.5 && p.solid >= 0.8 && p.n / (w * h) >= 0.3
+    return w >= cell * 0.35 && h >= cell * 0.35 && w <= cell * 12 && h <= cell * 12 && w / h < 3.5 && h / w < 3.5 && p.solid >= 0.8 && p.n / (w * h) >= 0.3
   })
   const matched = shaped.filter((p) => boardColours.some((c) => dist(p, c) < MATCH))
   if (!matched.length) return []

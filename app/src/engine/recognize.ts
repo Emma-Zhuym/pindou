@@ -144,11 +144,19 @@ export function recognise(img: Raster, render: TextRenderer, onProgress?: (step:
 
   // every cell picks the group whose colour AND label shape fit it best
   onProgress?.('assign')
+  // Empty cells. When most cells carry a printed code, a cell without one is empty, provided it
+  // has the background colour (a white bead like H2 shares that colour but carries its code).
   const empty = new Uint8Array(n)
-  if (blank !== undefined) {
-    const bc = rgbOf(cl.centre, blank)
-    for (let i = 0; i < n; i++) {
-      if (cells.share[i] <= 0.06 && colourDist({ r: cells.fill[i * 3], g: cells.fill[i * 3 + 1], b: cells.fill[i * 3 + 2] }, bc) < 26) empty[i] = 1
+  const bare: number[] = []
+  for (let i = 0; i < n; i++) if (cells.share[i] <= 0.06) bare.push(i)
+  let background: Rgb | null = blank !== undefined ? rgbOf(cl.centre, blank) : null
+  if (!background && bare.length && bare.length < 0.7 * n) {
+    const mid = (ch: number) => bare.map((i) => cells.fill[i * 3 + ch]).sort((a, b) => a - b)[bare.length >> 1]
+    background = { r: mid(0), g: mid(1), b: mid(2) }
+  }
+  if (background) {
+    for (const i of bare) {
+      if (colourDist({ r: cells.fill[i * 3], g: cells.fill[i * 3 + 1], b: cells.fill[i * 3 + 2] }, background) < 26) empty[i] = 1
     }
   }
   const assign = new Int16Array(n).fill(-1)
