@@ -32,6 +32,8 @@ export interface Chart {
   /** where the board lies in the image, as confirmed when saved; `cells` follows it. Missing on
    *  charts saved before it was kept: reopening then has to find it again. */
   board?: { grid: Grid; extent: Extent }
+  /** beading progress: pegboard and mirroring chosen, codes ticked off, seconds spent */
+  progress?: { board?: number; mirror?: boolean; done: string[]; seconds: number }
 }
 
 const DB = 'pindou'

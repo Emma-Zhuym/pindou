@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { type AiSettings, listVisionModels, loadAiSettings, type ModelInfo, saveAiSettings } from './ai'
+import { BeadMode } from './bead/BeadMode'
 import { Flow } from './flow/Flow'
 import { Icon } from './Icon'
 import { codeColour, codeOrder, drawBoard, ICONS } from './shared'
@@ -26,6 +27,7 @@ export default function App() {
   const [openId, setOpenId] = useState<string | null>(null)
   // the recognition flow: a new chart (null) or a saved one being corrected
   const [flow, setFlow] = useState<{ chart?: Chart } | null>(null)
+  const [beading, setBeading] = useState<string | null>(null)
   const [loadError, setLoadError] = useState('')
 
   const setTab = (t: Tab) => {
@@ -63,6 +65,22 @@ export default function App() {
   }
 
   const opened = charts?.find((c) => c.id === openId)
+  const beadChart = charts?.find((c) => c.id === beading)
+  if (beadChart) {
+    return (
+      <BeadMode
+        chart={beadChart}
+        onClose={() => {
+          setBeading(null)
+          window.scrollTo(0, 0)
+        }}
+        onChange={async (c) => {
+          await putChart(c)
+          await reload()
+        }}
+      />
+    )
+  }
   return (
     <div className="app">
       <main>
@@ -72,6 +90,7 @@ export default function App() {
               chart={opened}
               onBack={() => setOpenId(null)}
               onEdit={() => setFlow({ chart: opened })}
+              onBead={() => setBeading(opened.id)}
               onChange={async (c) => {
                 await putChart(c)
                 await reload()
@@ -186,8 +205,8 @@ function ChartCard({ chart, onOpen }: { chart: Chart; onOpen: () => void }) {
   )
 }
 
-function ChartDetail(props: { chart: Chart; onBack: () => void; onEdit: () => void; onChange: (c: Chart) => Promise<void>; onDelete: () => Promise<void> }) {
-  const { chart, onBack, onEdit, onChange, onDelete } = props
+function ChartDetail(props: { chart: Chart; onBack: () => void; onEdit: () => void; onBead: () => void; onChange: (c: Chart) => Promise<void>; onDelete: () => Promise<void> }) {
+  const { chart, onBack, onEdit, onBead, onChange, onDelete } = props
   const board = useRef<HTMLCanvasElement>(null)
   const original = useBlobUrl(chart.image)
   const [view, setView] = useState<'board' | 'original'>('board')
@@ -210,9 +229,14 @@ function ChartDetail(props: { chart: Chart; onBack: () => void; onEdit: () => vo
         <button className="circle glass" aria-label="返回图纸列表" onClick={onBack}>
           <Icon d={ICONS.back} size={20} />
         </button>
-        <button className="primary small" onClick={onEdit}>
-          修改识别结果
-        </button>
+        <div className="row">
+          <button className="small glass" onClick={onEdit}>
+            修改识别结果
+          </button>
+          <button className="primary small" onClick={onBead}>
+            {chart.progress ? '继续拼豆' : '开始拼豆'}
+          </button>
+        </div>
       </div>
       <input
         className="titleinput"
