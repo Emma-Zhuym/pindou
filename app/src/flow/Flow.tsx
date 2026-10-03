@@ -2,7 +2,7 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 import { type AiLegend, type AiSettings, loadAiSettings, readLegendWithAi } from '../ai'
 import { loadImage, paintLabel, renderText, toRaster } from '../browser'
 import { CATALOGUE } from '../engine/glyphs'
-import type { Extent, Grid } from '../engine/grid'
+import { type Extent, findBoard, findGrid, type Grid, type Raster } from '../engine/grid'
 import { findLegend, outsideBoard, type Rect } from '../engine/legendArea'
 import { applyReading, fitList, needsHelp, type Reading, readLocally } from '../engine/legendRead'
 import { recognise, type Recognition } from '../engine/recognize'
@@ -72,7 +72,9 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
       // let the "working" state paint before the main thread is busy
       await new Promise((r) => setTimeout(r, 30))
       const raster = toRaster(image)
-      const first = recognise(raster, renderText, undefined, board)
+      // a saved chart's cells only line up with the board it was saved on
+      const where = board ?? (saved ? (saved.board ?? findSavedBoard(raster, saved)) : undefined)
+      const first = recognise(raster, renderText, undefined, where)
       // local first: swatches found and named on the chart itself
       const localReading = readLocally(raster, first, renderText)
       const rect = saved ? saved.legendRect : (findLegend(raster, first) ?? outsideBoard(first, raster.width, raster.height))
@@ -213,6 +215,7 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
         legend,
         legendRect,
         edit: { engine: ENGINE_VERSION, names, assign: Array.from(assign) },
+        board: { grid: rec.grid, extent: { r0: rec.cells.r0, c0: rec.cells.c0, rows: rec.cells.rows, cols: rec.cells.cols } },
       }
       await putChart(record)
       setDirty(false)
@@ -297,6 +300,45 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
       )}
     </div>
   )
+}
+
+/**
+ * For charts saved before the board was kept: the board the saved cells were read on. The grid is
+ * found again; of the boards of the saved size near the found one, the one whose cell centres
+ * best match the saved codes' bead colours is taken.
+ */
+function findSavedBoard(img: Raster, saved: Chart): { grid: Grid; extent: Extent } {
+  const grid = findGrid(img)
+  const auto = findBoard(img, grid)
+  const { cols, rows, cells } = saved
+  const { width: W, height: H, data } = img
+  const known = cells.map((c, i) => [i, CATALOGUE[c]] as const).filter(([, c]) => c)
+  const step = Math.max(1, Math.floor(known.length / 1500))
+  let best = { r0: auto.r0, c0: auto.c0, rows, cols }
+  let bestOff = Infinity
+  // the saved board may have been trimmed anywhere inside the found one, or reach a little past it
+  for (let r0 = auto.r0 - 4; r0 <= auto.r0 + Math.max(0, auto.rows - rows) + 4; r0++) {
+    for (let c0 = auto.c0 - 4; c0 <= auto.c0 + Math.max(0, auto.cols - cols) + 4; c0++) {
+      let off = 0
+      for (let k = 0; k < known.length; k += step) {
+        const [i, c] = known[k]
+        // off-centre, clear of the printed code and the grid line
+        const x = Math.round(grid.offX + (c0 + (i % cols) + 0.22) * grid.perX)
+        const y = Math.round(grid.offY + (r0 + Math.floor(i / cols) + 0.22) * grid.perY)
+        if (x < 0 || y < 0 || x >= W || y >= H) {
+          off += 300
+          continue
+        }
+        const p = (y * W + x) * 4
+        off += Math.abs(data[p] - c!.r) + Math.abs(data[p + 1] - c!.g) + Math.abs(data[p + 2] - c!.b)
+      }
+      if (off < bestOff) {
+        bestOff = off
+        best = { r0, c0, rows, cols }
+      }
+    }
+  }
+  return { grid, extent: best }
 }
 
 function defaultTitle() {

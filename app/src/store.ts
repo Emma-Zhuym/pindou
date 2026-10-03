@@ -1,5 +1,6 @@
 // The chart library, kept in this browser's IndexedDB. Each chart keeps the original image, the
 // final code of every cell, and the editing state so it can be reopened and corrected later.
+import type { Extent, Grid } from './engine/grid'
 import type { Rect } from './engine/legendArea'
 
 export type Status = 'todo' | 'doing' | 'done'
@@ -28,6 +29,9 @@ export interface Chart {
   legend: Record<string, number>
   legendRect: Rect | null
   edit: { engine: number; names: string[]; assign: number[] }
+  /** where the board lies in the image, as confirmed when saved; `cells` follows it. Missing on
+   *  charts saved before it was kept: reopening then has to find it again. */
+  board?: { grid: Grid; extent: Extent }
 }
 
 const DB = 'pindou'
