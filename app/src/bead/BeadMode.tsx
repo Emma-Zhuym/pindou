@@ -1,25 +1,13 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '../Icon'
 import { codeColour, codeOrder, ICONS } from '../shared'
+import { LABEL_CELL, MAX_SIDE, MIN_CELL, paintChart } from './paint'
 import type { Chart } from '../store'
 
 /** The pegboards sold: square, this many pegs a side. */
 const BOARDS = [52, 78, 104] as const
-const MIN_CELL = 4
-const LABEL_CELL = 20 // smallest cell the code is printed in
-const GUIDE = '#e5243b' // every 5th and 10th grid line
-const MAX_SIDE = 4000 // canvas pixels a side, within what phones allow
-
 const pad = (n: number) => String(n).padStart(2, '0')
 const clock = (s: number) => `${Math.floor(s / 3600)}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}`
-
-/** Text colour that reads on a bead colour. */
-const inkOn = (code: string) => {
-  const m = /rgb\((\d+),(\d+),(\d+)\)/.exec(codeColour(code))
-  if (!m) return '#000'
-  const [r, g, b] = m.slice(1).map(Number)
-  return 0.299 * r + 0.587 * g + 0.114 * b > 140 ? 'rgba(0,0,0,0.75)' : 'rgba(255,255,255,0.9)'
-}
 
 /**
  * Beading a saved chart: the board in bead colours on its pegboard, guide lines every 5 (dashed)
@@ -72,109 +60,8 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
   }, [running]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    const c = ref.current
-    if (!c) return
-    const dpr = Math.min(window.devicePixelRatio || 1, MAX_SIDE / ((side + 2) * cell))
-    const css = (side + 2) * cell
-    c.width = Math.round(css * dpr)
-    c.height = Math.round(css * dpr)
-    c.style.width = `${css}px`
-    c.style.height = `${css}px`
-    const ctx = c.getContext('2d')!
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    ctx.fillStyle = '#fff'
-    ctx.fillRect(0, 0, css, css)
-    const m = 2 * cell // ruler margin
-    // the pegboard, and the chart centred on it
-    const ox = Math.floor((side - cols) / 2)
-    const oy = Math.floor((side - rows) / 2)
-    ctx.fillStyle = '#f2f2f4'
-    ctx.fillRect(m, m, side * cell, side * cell)
-    if (cell >= 8) {
-      ctx.fillStyle = '#d8d8de'
-      for (let y = 0; y < side; y++) for (let x = 0; x < side; x++) ctx.fillRect(m + (x + 0.5) * cell - 1, m + (y + 0.5) * cell - 1, 2, 2)
-    }
-    const at = (c0: number) => (mirror ? cols - 1 - c0 : c0)
-    const text = labels && cell >= LABEL_CELL
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-    ctx.font = `600 ${Math.floor(cell * 0.36)}px -apple-system, sans-serif`
-    for (let r = 0; r < rows; r++) {
-      for (let c0 = 0; c0 < cols; c0++) {
-        const code = cells[r * cols + c0]
-        if (!code) continue
-        const x = m + (ox + at(c0)) * cell
-        const y = m + (oy + r) * cell
-        const dim = focus ? code !== focus : done.includes(code)
-        ctx.globalAlpha = dim ? (focus ? 0.12 : 0.3) : 1
-        ctx.fillStyle = codeColour(code)
-        ctx.fillRect(x, y, cell, cell)
-        if (text && !dim) {
-          ctx.fillStyle = inkOn(code)
-          ctx.fillText(code, x + cell / 2, y + cell / 2)
-        }
-      }
-    }
-    ctx.globalAlpha = 1
-    // Grid over the chart, counted from its own first row and column: a thin line round every
-    // cell, every 5th dashed and darker, every 10th solid and darkest.
-    const x0 = m + ox * cell
-    const y0 = m + oy * cell
-    // the marked lines in a strong red on a white halo, so they show on dark beads and light alike
-    const line = (k: number, vertical: boolean) => {
-      const strong = k % 10 === 0
-      const mid = !strong && k % 5 === 0
-      const path = () => {
-        ctx.beginPath()
-        if (vertical) {
-          const x = x0 + (mirror ? cols - k : k) * cell
-          ctx.moveTo(x, y0)
-          ctx.lineTo(x, y0 + rows * cell)
-        } else {
-          const y = y0 + k * cell
-          ctx.moveTo(x0, y)
-          ctx.lineTo(x0 + cols * cell, y)
-        }
-      }
-      if (!strong && !mid) {
-        ctx.strokeStyle = 'rgba(0,0,0,0.16)'
-        ctx.lineWidth = 0.75
-        ctx.setLineDash([])
-        path()
-        ctx.stroke()
-        return
-      }
-      const width = strong ? 2 : 1.25
-      ctx.setLineDash(mid ? [Math.max(3, cell / 3), Math.max(2, cell / 5)] : [])
-      ctx.strokeStyle = 'rgba(255,255,255,0.85)'
-      ctx.lineWidth = width + 2
-      path()
-      ctx.stroke()
-      ctx.strokeStyle = GUIDE
-      ctx.lineWidth = width
-      path()
-      ctx.stroke()
-    }
-    // thin ones first, so the marked ones lie on top
-    for (const pass of [0, 1]) {
-      for (let k = 0; k <= cols; k++) if ((k % 5 === 0) === (pass === 1)) line(k, true)
-      for (let k = 0; k <= rows; k++) if ((k % 5 === 0) === (pass === 1)) line(k, false)
-    }
-    ctx.setLineDash([])
-    // the chart's edge, and the pegboard's
-    ctx.lineWidth = 2
-    ctx.strokeStyle = '#000'
-    ctx.strokeRect(x0, y0, cols * cell, rows * cell)
-    if (board) {
-      ctx.strokeStyle = '#8e8e93'
-      ctx.strokeRect(m, m, side * cell, side * cell)
-    }
-    // rulers: the chart's column and row numbers every 5
-    ctx.fillStyle = '#6e6e73'
-    ctx.font = `${Math.max(9, Math.floor(cell * 0.7))}px -apple-system, sans-serif`
-    for (let k = 5; k <= cols; k += 5) ctx.fillText(String(k), x0 + ((mirror ? cols - k : k - 1) + 0.5) * cell, m - cell * 0.8)
-    for (let k = 5; k <= rows; k += 5) ctx.fillText(String(k), m - cell * 0.9, y0 + (k - 0.5) * cell)
-  }, [cells, cols, rows, side, board, cell, mirror, labels, focus, done])
+    if (ref.current) paintChart(ref.current, { cells, cols, rows, cell, board, mirror, labels, focus, done })
+  }, [cells, cols, rows, board, cell, mirror, labels, focus, done])
 
   const toggleDone = (code: string) => {
     const next = done.includes(code) ? done.filter((c) => c !== code) : [...done, code]
