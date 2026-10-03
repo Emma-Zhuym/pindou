@@ -94,14 +94,15 @@ export function readLocally(img: Raster, rec: Recognition, render: TextRenderer)
   const scored = candidates.map((s) => ({ s, coverage: nearest(rec, s.map((w) => w.colour)).coverage }))
   const best = Math.max(...scored.map((c) => c.coverage))
   const swatches = scored.filter((c) => c.coverage >= best - 0.02).sort((a, b) => a.s.length - b.s.length)[0].s
-  const { names } = nameSwatches(img, rec, swatches, render)
+  const { names, swatches: named } = nameSwatches(img, rec, swatches, render)
+  if (!named.length) return null
   const m = merge(
     rec,
     names.map((n) => n.code),
-    swatches.map((s) => s.colour),
+    named.map((s) => s.colour),
     names.map((n) => !n.sure),
   )
-  return { ...m, swatches }
+  return { ...m, swatches: named }
 }
 
 /**

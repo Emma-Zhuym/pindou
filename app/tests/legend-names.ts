@@ -74,13 +74,13 @@ for (const [key, chart] of Object.entries(CHARTS)) {
     const area = findLegend(img, rec)
     const swatches = process.env.FINDER === 'colour' ? findSwatchesByColour(img, rec) : area ? findLegendSwatches(img, area, rec.grid.perX) : []
     const t = Date.now()
-    const { names, ordered, swatchOf } = nameSwatches(img, rec, swatches, render)
+    const { names, ordered, swatchOf, swatches: named } = nameSwatches(img, rec, swatches, render)
     const ms = Date.now() - t
     const cells = Array.from(swatchOf, (k) => (k >= 0 ? names[k].code : ''))
     let line = `${key.padEnd(9)} ${which.padEnd(11)} swatches ${String(swatches.length).padStart(2)} ${ordered ? 'ordered' : 'unordered'} ${String(ms).padStart(5)}ms`
     const k = img.width / chart.width
     const truth = chart.rows.flatMap((r) => r.codes.split(' ').map((code, i) => ({ code, x: (r.x0 + i * r.dx) * k, y: r.y * k })))
-    const inside = (i: number) => truth.filter((t) => { const r = swatches[i].rect; return t.x >= r.x && t.x <= r.x + r.w && t.y >= r.y && t.y <= r.y + r.h })
+    const inside = (i: number) => truth.filter((t) => { const r = named[i].rect; return t.x >= r.x && t.x <= r.x + r.w && t.y >= r.y && t.y <= r.y + r.h })
     let right = 0
     let scored = 0
     const wrong: string[] = []
