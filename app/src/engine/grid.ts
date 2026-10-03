@@ -89,7 +89,26 @@ export function findGrid(img: Raster, lo = 7, hi = 45): Grid {
   if (longSide > 1800) {
     const f = longSide / 1500
     const coarse = findGrid(reduce(img, f), lo, hi)
-    return refine(profile(img, 0), profile(img, 1), (coarse.perX + coarse.perY) / 2 * f)
+    const px = profile(img, 0)
+    const py = profile(img, 1)
+    const estimate = (coarse.perX + coarse.perY) / 2 * f
+    // Reduction can erase fine lines or push the true pitch below `lo`. Treat the
+    // reduced result as a candidate: divisors must be checked on ORIGINAL pixels.
+    const candidates = []
+    // Fine-fit error may put an exact `lo`-pixel grid just below the search bound.
+    const minCandidate = lo - Math.max(0.08, lo * 0.0025)
+    for (let divisor = 1; estimate / divisor >= minCandidate; divisor++) {
+      const grid = refine(px, py, estimate / divisor)
+      candidates.push({ grid, x: support(px, grid.perX), y: support(py, grid.perY) })
+    }
+    const maxX = Math.max(...candidates.map(c => c.x))
+    const maxY = Math.max(...candidates.map(c => c.y))
+    // Both axes need lines at most predicted positions. A half-period alternates
+    // between lines and cell interiors, unlike a genuine finer grid.
+    const valid = maxX > 0 && maxY > 0
+      ? candidates.filter(c => c.x >= maxX * 0.75 && c.y >= maxY * 0.75)
+      : []
+    return (valid.at(-1) ?? candidates[0]).grid
   }
   const px = profile(img, 0)
   const py = profile(img, 1)
@@ -115,6 +134,15 @@ export function findGrid(img: Raster, lo = 7, hi = 45): Grid {
   let i = comb.findIndex((v) => v >= 0.62 * top)
   while (i + 1 < pers.length && comb[i + 1] >= comb[i]) i++
   return refine(px, py, pers[i])
+}
+
+/** Weak-end line evidence; mean alone also rewards every second/fourth grid line. */
+function support(p: Float64Array, per: number): number {
+  let best = 0
+  for (let off = 0; off < per; off += 0.5) {
+    best = Math.max(best, percentile(lineValues(p, per, off), 40))
+  }
+  return best
 }
 
 /** Exact pitch and phase per axis around a pitch estimate, then centred on the grid lines. */

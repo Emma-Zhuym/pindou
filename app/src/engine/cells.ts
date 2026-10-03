@@ -21,19 +21,18 @@ export interface Cells {
   c0: number
 }
 
-/** Cells above this size are read from a reduced copy of the image. The label matcher compares
- *  stacked labels with blurred font renderings; on very large, crisp cells an unusual typeface
- *  (pixel fonts) stops resembling them, while at this size the labels are still sharp enough. */
+/** Only label ink is normalised in scale. Fill/share always come from original pixels. */
 const READ_CELL = 24
 
 export function readCells(img: Raster, grid: Grid, ext: Extent, inset = 0.16): Cells {
   const per = (grid.perX + grid.perY) / 2
-  if (per > READ_CELL * 1.15) {
-    const f = per / READ_CELL
-    const small = reduce(img, f)
-    const g = { perX: grid.perX / f, offX: grid.offX / f, perY: grid.perY / f, offY: grid.offY / f }
-    return readCells(small, g, ext, inset)
+  const factor = per > READ_CELL * 1.15 ? per / READ_CELL : 1
+  const inkImage = factor > 1 ? reduce(img, factor) : img
+  const inkGrid = {
+    perX: grid.perX / factor, perY: grid.perY / factor,
+    offX: grid.offX / factor, offY: grid.offY / factor,
   }
+  const { width: iw, height: ih, data: inkData } = inkImage
   const { width: W, height: H, data } = img
   const { rows, cols, r0, c0 } = ext
   const n = rows * cols
@@ -98,31 +97,34 @@ export function readCells(img: Raster, grid: Grid, ext: Extent, inset = 0.16): C
       fill[cell * 3 + 1] = fg
       fill[cell * 3 + 2] = fb
 
-      // Sub-pixel resample of the whole cell to INK x INK. Cells bigger than INK pixels take
-      // several samples per point and average them, so thin label strokes are not skipped.
+      // Resample only the label image; compare its pixels to the ORIGINAL fill.
+      // After scale normalisation square cells need one bilinear sample per point.
+      // Multiple samples remain useful if a rectangular cell's long side exceeds INK.
       const base = cell * INK * INK
-      const sw = grid.perX / INK
-      const sh = grid.perY / INK
+      const sw = inkGrid.perX / INK
+      const sh = inkGrid.perY / INK
+      const ix0 = inkGrid.offX + (c0 + c) * inkGrid.perX
+      const iy0 = inkGrid.offY + (r0 + r) * inkGrid.perY
       const kx = Math.max(1, Math.ceil(sw))
       const ky = Math.max(1, Math.ceil(sh))
       for (let v = 0; v < INK; v++) {
         for (let u = 0; u < INK; u++) {
           let d = 0
           for (let a = 0; a < ky; a++) {
-            const sy = Math.min(H - 1.001, Math.max(0, y0 + (v + (a + 0.5) / ky) * sh - 0.5))
+            const sy = Math.min(ih - 1.001, Math.max(0, iy0 + (v + (a + 0.5) / ky) * sh - 0.5))
             const yi = Math.floor(sy)
             const fy = sy - yi
             for (let b = 0; b < kx; b++) {
-              const sx = Math.min(W - 1.001, Math.max(0, x0 + (u + (b + 0.5) / kx) * sw - 0.5))
+              const sx = Math.min(iw - 1.001, Math.max(0, ix0 + (u + (b + 0.5) / kx) * sw - 0.5))
               const xi = Math.floor(sx)
               const fx = sx - xi
-              const i00 = (yi * W + xi) * 4
+              const i00 = (yi * iw + xi) * 4
               const i01 = i00 + 4
-              const i10 = i00 + W * 4
+              const i10 = i00 + iw * 4
               const i11 = i10 + 4
               for (let ch = 0; ch < 3; ch++) {
-                const top = data[i00 + ch] * (1 - fx) + data[i01 + ch] * fx
-                const bot = data[i10 + ch] * (1 - fx) + data[i11 + ch] * fx
+                const top = inkData[i00 + ch] * (1 - fx) + inkData[i01 + ch] * fx
+                const bot = inkData[i10 + ch] * (1 - fx) + inkData[i11 + ch] * fx
                 d += Math.abs(top * (1 - fy) + bot * fy - (ch === 0 ? fr : ch === 1 ? fg : fb))
               }
             }
