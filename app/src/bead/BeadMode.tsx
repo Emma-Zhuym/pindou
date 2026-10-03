@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '../Icon'
 import { codeColour, codeOrder, ICONS } from '../shared'
 import { LABEL_CELL, MAX_SIDE, MIN_CELL, paintChart } from './paint'
+import { statusPatch } from '../status'
 import type { Chart } from '../store'
 
 /** The pegboards sold: square, this many pegs a side. */
@@ -97,6 +98,18 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
       if (chart.status === 'todo') save({ status: 'doing' })
     }
   }
+  // the whole chart done at once: every code ticked, the timer stopped, the chart marked 已拼
+  const finish = async () => {
+    if (!window.confirm('整张图都拼完了？会勾上所有色号、停止计时，并把图纸标成"已拼"。')) return
+    setRunning(false)
+    const all = counts.map(([c]) => c)
+    setDone(all)
+    latest.current.done = all
+    const patch = await statusPatch(chart, 'done')
+    delete patch.progress // save() writes the progress, every code ticked
+    await save(patch)
+    onClose()
+  }
   const close = async () => {
     setRunning(false)
     await save()
@@ -165,6 +178,11 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
         >
           色号
         </button>
+        {chart.status !== 'done' && (
+          <button className="primary small" onClick={finish}>
+            整张拼完
+          </button>
+        )}
         <div className="zoombar">
           <button className="link" aria-label="缩小" onClick={() => setCell(Math.max(MIN_CELL, cell - 2))}>
             −
