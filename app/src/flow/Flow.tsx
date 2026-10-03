@@ -8,7 +8,7 @@ import { applyReading, fitList, needsHelp, type Reading, readLocally } from '../
 import { recognise, type Recognition } from '../engine/recognize'
 import { Icon } from '../Icon'
 import { LinkImport } from './LinkImport'
-import { boardThumb, codeOrder, css, GREY, ICONS } from '../shared'
+import { boardThumb, codeOrder, copyText, css, GREY, ICONS, newId } from '../shared'
 import { type Chart, countCells, ENGINE_VERSION, putChart, type Status, STATUS_LABEL } from '../store'
 
 type Step = 'import' | 'codes' | 'wall' | 'list'
@@ -232,7 +232,7 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
       const cells = Array.from(assign, (g) => (g >= 0 ? names[g] : ''))
       const now = Date.now()
       const record: Chart = {
-        id: chart?.id ?? crypto.randomUUID(),
+        id: chart?.id ?? newId(),
         createdAt: chart?.createdAt ?? now,
         updatedAt: now,
         ...meta,
@@ -1401,8 +1401,7 @@ function ListPage(props: { counts: Map<string, number>; legend: Record<string, n
         <button
           className="link"
           onClick={async () => {
-            await navigator.clipboard.writeText(text)
-            setCopied(true)
+            setCopied(await copyText(text))
           }}
         >
           {copied ? '已复制' : '复制清单'}

@@ -41,3 +41,38 @@ export const ICONS = {
   close: 'M6 6l12 12M18 6 6 18',
   back: 'M15 5l-7 7 7 7',
 }
+
+// Some browser features exist only on https or localhost ("secure contexts"). Opened from another
+// device by address (http://192.168…), the app goes without them; these work either way.
+
+/** A random id for a new record. */
+export function newId(): string {
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID()
+  const b = crypto.getRandomValues(new Uint8Array(16))
+  b[6] = (b[6] & 0x0f) | 0x40 // a version-4 UUID, like randomUUID's
+  b[8] = (b[8] & 0x3f) | 0x80
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('')
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`
+}
+
+/** Puts text on the clipboard; false if the browser would not allow it. */
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    // fall through to the old way
+  }
+  const area = document.createElement('textarea')
+  area.value = text
+  area.setAttribute('readonly', '')
+  area.style.position = 'fixed'
+  area.style.opacity = '0'
+  document.body.appendChild(area)
+  area.select()
+  const ok = document.execCommand('copy')
+  area.remove()
+  return ok
+}
