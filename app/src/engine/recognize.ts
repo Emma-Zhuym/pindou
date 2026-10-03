@@ -29,6 +29,9 @@ export interface Recognition {
   empty: Uint8Array
 }
 
+/** below this likeness to the colour's own printed code, ink on a background cell is a watermark */
+const WATERMARK_CORR = 0.4
+
 const rgbOf = (centre: Float64Array, k: number): Rgb => ({ r: centre[k * 3], g: centre[k * 3 + 1], b: centre[k * 3 + 2] })
 const colourDist = (a: Rgb, b: Rgb) => Math.abs(a.r - b.r) + Math.abs(a.g - b.g) + Math.abs(a.b - b.b)
 
@@ -155,8 +158,31 @@ export function recognise(img: Raster, render: TextRenderer, onProgress?: (step:
     background = { r: mid(0), g: mid(1), b: mid(2) }
   }
   if (background) {
-    for (const i of bare) {
-      if (colourDist({ r: cells.fill[i * 3], g: cells.fill[i * 3 + 1], b: cells.fill[i * 3 + 2] }, background) < 26) empty[i] = 1
+    const bg = background
+    const onPage = (i: number) => colourDist({ r: cells.fill[i * 3], g: cells.fill[i * 3 + 1], b: cells.fill[i * 3 + 2] }, bg) < 26
+    for (const i of bare) if (onPage(i)) empty[i] = 1
+    // Ink on a background-coloured cell is either the code of a bead in that colour (white H2 on a
+    // white page) or a watermark across an empty cell. The codes all look alike; a watermark cuts
+    // each cell differently. Compare each with the stack of those that agree, twice over.
+    const inked: number[] = []
+    for (let i = 0; i < n; i++) if (cells.share[i] > 0.06 && onPage(i)) inked.push(i)
+    if (inked.length) {
+      const look = (members: number[]) => {
+        const t = unit(stack(cells, members))
+        return inked.map((i) => {
+          const v = unit(cells.ink, 1 / 255, tmp, i * INK * INK)
+          let s = 0
+          for (let k = 0; k < t.length; k++) s += t[k] * v[k]
+          return s
+        })
+      }
+      let corr = look(inked)
+      corr = look(inked.filter((_, k) => corr[k] >= 0.5))
+      const beads = inked.filter((_, k) => corr[k] >= 0.5)
+      // with hardly any alike, there is no bead of this colour: all of it is watermark
+      inked.forEach((i, k) => {
+        if (beads.length < 3 || corr[k] < WATERMARK_CORR) empty[i] = 1
+      })
     }
   }
   const assign = new Int16Array(n).fill(-1)
