@@ -3,7 +3,8 @@ import { inkOn } from '../bead/paint'
 import { CATALOGUE, CODES } from '../engine/glyphs'
 import { codeColour, codeOrder } from '../shared'
 
-const series = (code: string) => /^[A-Z]+/.exec(code)?.[0] ?? ''
+// the clear L1 sits with H, the blacks, whites and greys
+const series = (code: string) => (code === 'L1' ? 'H' : (/^[A-Z]+/.exec(code)?.[0] ?? ''))
 /** the standard 221-colour set (A to H, M) plus the clear L1: what a box of MARD beads holds */
 const STANDARD = (code: string) => /^[A-HM]\d+$/.test(code) || code === 'L1'
 const ORDERED = [...CODES].sort(codeOrder)
@@ -91,7 +92,7 @@ export function ColourCard({ title, near, value, onPick, onClose }: { title: str
         )}
         {groups.map(([s, codes]) => (
           <section key={s}>
-            <span className="sub">{s === 'L' ? 'L1 透明' : `${s} 系列`}</span>
+            <span className="sub">{s === 'H' ? 'H 系列（含 L1 透明）' : `${s} 系列`}</span>
             <div className="swatchgrid">{codes.map(swatch)}</div>
           </section>
         ))}

@@ -4,7 +4,8 @@ import { changeStock, getStock, type Stock, undoStock } from '../store'
 import { grams, STANDARD } from './beads'
 import { Restock } from './Restock'
 
-const series = (code: string) => /^[A-Z]+/.exec(code)?.[0] ?? ''
+// the clear L1 sits with H, the blacks, whites and greys
+const series = (code: string) => (code === 'L1' ? 'H' : (/^[A-Z]+/.exec(code)?.[0] ?? ''))
 const LOW = 300 // under 3 grams left
 const KIND: Record<string, string> = { restock: '补货', used: '拼完扣除', returned: '加回', set: '改数' }
 
@@ -15,6 +16,35 @@ const FILTERS: [Filter, string][] = [
   ['low', '快用完'],
   ['none', '没有'],
 ]
+type Sort = 'code' | 'most' | 'least'
+const SORTS: [Sort, string][] = [
+  ['code', '按色号'],
+  ['most', '由多到少'],
+  ['least', '由少到多'],
+]
+
+// how the list was last arranged: sorting, the series picked, the series folded (this device only)
+interface View {
+  sort: Sort
+  series: string[]
+  folded: string[]
+}
+const VIEW_KEY = 'pindou.stockView'
+function loadView(): View {
+  try {
+    return { sort: 'code', series: [], folded: [], ...JSON.parse(localStorage.getItem(VIEW_KEY) ?? '{}') }
+  } catch {
+    return { sort: 'code', series: [], folded: [] }
+  }
+}
+function saveView(v: View) {
+  try {
+    localStorage.setItem(VIEW_KEY, JSON.stringify(v))
+  } catch {
+    // private browsing: forget it
+  }
+}
+const seriesName = (s: string) => (s === 'H' ? 'H 系列（含 L1）' : `${s} 系列`)
 
 /**
  * Beads on hand, by code and series: only what is in the jars. Beads leave it when a chart is
@@ -27,6 +57,12 @@ export function StockPage() {
   const [editing, setEditing] = useState<{ code: string; text: string } | null>(null)
   const [restocking, setRestocking] = useState(false)
   const [showLog, setShowLog] = useState(false)
+  const [view, setViewState] = useState<View>(loadView)
+  const setView = (patch: Partial<View>) => {
+    const next = { ...view, ...patch }
+    setViewState(next)
+    saveView(next)
+  }
 
   useEffect(() => {
     getStock().then(setStock)
@@ -38,13 +74,18 @@ export function StockPage() {
   const codes = [...new Set([...STANDARD, ...Object.keys(stock.beads)])].sort(codeOrder)
   const q = query.toUpperCase().trim()
   const pass = (c: string) => (filter === 'all' ? true : filter === 'have' ? have(c) > 0 : filter === 'low' ? low(c) : have(c) === 0)
-  const shown = codes.filter((c) => (!q || c.startsWith(q)) && pass(c))
+  const allSeries = [...new Set(codes.map(series))]
+  const picked = view.series.filter((s) => allSeries.includes(s))
+  const shown = codes.filter((c) => (!q || c.startsWith(q)) && pass(c) && (!picked.length || picked.includes(series(c))))
+  if (view.sort !== 'code') shown.sort((a, b) => (view.sort === 'most' ? have(b) - have(a) : have(a) - have(b)) || codeOrder(a, b))
   const groups = new Map<string, string[]>()
   for (const c of shown) {
     const s = series(c)
     if (!groups.has(s)) groups.set(s, [])
     groups.get(s)!.push(c)
   }
+  const toggleSeries = (s: string) => setView({ series: picked.includes(s) ? picked.filter((x) => x !== s) : [...picked, s] })
+  const toggleFold = (s: string) => setView({ folded: view.folded.includes(s) ? view.folded.filter((x) => x !== s) : [...view.folded, s] })
   const total = Object.values(stock.beads).reduce((a, b) => a + b, 0)
   const last = stock.log[0]
 
@@ -100,12 +141,43 @@ export function StockPage() {
           </button>
         ))}
       </div>
+      <div className="segmented full" role="radiogroup" aria-label="排序">
+        {SORTS.map(([o, label]) => (
+          <button key={o} role="radio" aria-checked={view.sort === o} aria-selected={view.sort === o} onClick={() => setView({ sort: o })}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="chips" aria-label="色系">
+        <button className={picked.length ? 'chip' : 'chip on'} aria-pressed={!picked.length} onClick={() => setView({ series: [] })}>
+          全部色系
+        </button>
+        {allSeries.map((s) => (
+          <button key={s} className={picked.includes(s) ? 'chip on' : 'chip'} aria-pressed={picked.includes(s)} onClick={() => toggleSeries(s)}>
+            {s}
+          </button>
+        ))}
+      </div>
+      <div className="row">
+        <button className="link" onClick={() => setView({ folded: [] })}>
+          全部展开
+        </button>
+        <button className="link" onClick={() => setView({ folded: allSeries })}>
+          全部收起
+        </button>
+      </div>
       <p className="hint">只记罐子里现有的豆子。图纸标成"已拼"时才会扣掉。点颗数可以直接改。</p>
 
       {[...groups].map(([s, list]) => (
         <section key={s} className="card stocklist">
-          <span className="sub">{s === 'L' ? 'L1 透明' : `${s} 系列`}</span>
-          {list.map((c) => {
+          <button className="serieshead" aria-expanded={!view.folded.includes(s)} onClick={() => toggleFold(s)}>
+            <span className="chev">{view.folded.includes(s) ? '›' : '⌄'}</span>
+            <b>{seriesName(s)}</b>
+            <span className="sub">
+              {list.length} 色 · {list.filter((c) => have(c) > 0).length} 色有货 · {grams(list.reduce((a, c) => a + have(c), 0))}
+            </span>
+          </button>
+          {!view.folded.includes(s) && list.map((c) => {
             const n = have(c)
             return (
               <div key={c} className="stockrow">

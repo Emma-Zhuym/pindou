@@ -1369,3 +1369,24 @@ img.boardview {
   color: var(--sub);
   font-weight: 400;
 }
+.serieshead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.serieshead .chev {
+  width: 14px;
+  color: var(--sub);
+  font-weight: 700;
+}
+.serieshead .sub {
+  margin-left: auto;
+}
