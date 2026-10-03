@@ -307,6 +307,25 @@ h2 {
   border-radius: var(--r-control);
   background: var(--fill);
 }
+.field select {
+  padding: 6px;
+  border: 0;
+  border-radius: var(--r-control);
+  background: var(--fill);
+  color: inherit;
+  font: inherit;
+}
+.field select option {
+  padding: 8px;
+  border-radius: 8px;
+}
+.field .row .grow {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .link.danger {
   align-self: center;
   color: var(--red);

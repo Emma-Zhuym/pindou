@@ -88,3 +88,27 @@ export async function readLegendWithAi(img: HTMLImageElement, rect: Rect, settin
   const rows = whole(parsed.size?.rows)
   return { entries: out, size: cols && rows ? { cols, rows } : undefined, total: whole(parsed.total) }
 }
+
+export interface ModelInfo {
+  id: string
+  name: string
+  /** US dollars per million input tokens, when OpenRouter lists a price */
+  inputPrice?: number
+}
+
+/** Checks the key and lists the OpenRouter models that accept images, cheapest first. */
+export async function listVisionModels(key: string): Promise<ModelInfo[]> {
+  const check = await fetch('https://openrouter.ai/api/v1/key', { headers: { Authorization: `Bearer ${key.trim()}` } })
+  if (check.status === 401 || check.status === 403) throw new Error('Key 无效，请检查是否复制完整')
+  if (!check.ok) throw new Error(`验证 Key 失败（${check.status}）`)
+  const res = await fetch('https://openrouter.ai/api/v1/models')
+  if (!res.ok) throw new Error(`获取模型列表失败（${res.status}）`)
+  const data = ((await res.json())?.data ?? []) as { id: string; name?: string; architecture?: { input_modalities?: string[]; modality?: string }; pricing?: { prompt?: string } }[]
+  return data
+    .filter((m) => m.architecture?.input_modalities?.includes('image') ?? m.architecture?.modality?.includes('image'))
+    .map((m) => {
+      const p = Number(m.pricing?.prompt)
+      return { id: m.id, name: m.name ?? m.id, inputPrice: Number.isFinite(p) && p >= 0 ? p * 1e6 : undefined }
+    })
+    .sort((a, b) => (a.inputPrice ?? Infinity) - (b.inputPrice ?? Infinity) || a.name.localeCompare(b.name))
+}

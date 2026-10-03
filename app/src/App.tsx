@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
-import { type AiSettings, loadAiSettings, saveAiSettings } from './ai'
+import { type AiSettings, listVisionModels, loadAiSettings, type ModelInfo, saveAiSettings } from './ai'
 import { Flow } from './flow/Flow'
 import { Icon } from './Icon'
 import { codeColour, codeOrder, drawBoard, ICONS } from './shared'
@@ -325,7 +325,7 @@ function SettingsPage({ onRestored, count }: { onRestored: () => Promise<void>; 
         <h1>设置</h1>
       </header>
 
-      <h2 className="sectiontitle">AI 读色号</h2>
+      <h2 className="sectiontitle">AI 读图例</h2>
       <section className="card form">
         <label className="field">
           <span>OpenRouter API Key</span>
@@ -339,16 +339,17 @@ function SettingsPage({ onRestored, count }: { onRestored: () => Promise<void>; 
             }}
           />
         </label>
-        <label className="field">
-          <span>模型 ID（在 OpenRouter 模型页复制）</span>
-          <input
-            value={ai.model}
-            onChange={(e) => {
-              setAi({ ...ai, model: e.target.value })
-              setSaved(false)
-            }}
-          />
-        </label>
+        <ModelPicker
+          apiKey={ai.key}
+          model={ai.model}
+          onModel={(model) => {
+            // picked from the checked list: save right away, key included
+            const next = { ...ai, model }
+            setAi(next)
+            saveAiSettings(next)
+            setSaved(true)
+          }}
+        />
         <div className="row end">
           {saved && <span className="sub">已保存</span>}
           <button
@@ -361,7 +362,7 @@ function SettingsPage({ onRestored, count }: { onRestored: () => Promise<void>; 
             保存
           </button>
         </div>
-        <p className="hint">Key 只存在这台设备的浏览器里。识别时只发送色号小图和图例，不发整张图纸。</p>
+        <p className="hint">Key 只存在这台设备的浏览器里。本地读图例没把握时，只把图例那一块截图发给模型，不发整张图纸。</p>
       </section>
 
       <h2 className="sectiontitle">数据</h2>
@@ -417,6 +418,63 @@ function SettingsPage({ onRestored, count }: { onRestored: () => Promise<void>; 
         </div>
         {note && <p className="hint">{note}</p>}
       </section>
+    </div>
+  )
+}
+
+/** After the key is entered: check it and pick one of the image-reading models from a list. */
+function ModelPicker({ apiKey, model, onModel }: { apiKey: string; model: string; onModel: (m: string) => void }) {
+  const [models, setModels] = useState<ModelInfo[] | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [filter, setFilter] = useState('')
+  const refresh = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      setModels(await listVisionModels(apiKey))
+    } catch (e) {
+      setModels(null)
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  const shown = (models ?? []).filter((m) => !filter.trim() || `${m.name} ${m.id}`.toLowerCase().includes(filter.trim().toLowerCase()))
+  // the model this app was tried with: cheap, reads small print well
+  const recommended = models?.find((m) => /gemini-3[\w.-]*flash-preview$/.test(m.id))
+  const unknown = !!models && !!model && !models.some((m) => m.id === model)
+  const price = (p?: number) => (p === undefined ? '' : p === 0 ? '免费' : `$${p < 1 ? p.toFixed(2) : p.toFixed(1)}/百万`)
+  return (
+    <div className="field">
+      <span>模型</span>
+      <div className="row">
+        <span className="sub grow">{model ? `当前：${model}` : '还没选'}</span>
+        <button className="link" disabled={!apiKey.trim() || busy} onClick={refresh}>
+          {busy ? '获取中…' : models ? '刷新模型' : '验证 Key 并获取模型'}
+        </button>
+      </div>
+      {error && <span className="sub bad">{error}</span>}
+      {models && (
+        <>
+          <span className="sub">Key 可用。下面是能看图的模型，按价格从低到高。</span>
+          {unknown && <span className="sub bad">现在填的「{model}」不是模型 ID，请从下面选一个。</span>}
+          {recommended && recommended.id !== model && (
+            <button className="link" onClick={() => onModel(recommended.id)}>
+              用推荐的 {recommended.name}
+            </button>
+          )}
+          <input placeholder="搜索，如 gemini flash" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="搜索模型" />
+          <select size={Math.min(8, Math.max(2, shown.length))} value={model} onChange={(e) => onModel(e.target.value)} aria-label="选择模型">
+            {shown.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+                {m.inputPrice !== undefined ? `（${price(m.inputPrice)}）` : ''}
+              </option>
+            ))}
+          </select>
+        </>
+      )}
     </div>
   )
 }
