@@ -9,6 +9,7 @@ import { CORE, INK, stack, unit } from './cells'
 import { CATALOGUE, type Rgb, type TextRenderer } from './glyphs'
 import type { Raster } from './grid'
 import { findLegend } from './legendArea'
+import { readCounts } from './legendCounts'
 import { nameSwatches } from './legendNames'
 import { findSwatchesByColour } from './legendPatches'
 import { findLegendSwatches, type LegendSwatch } from './legendSwatches'
@@ -23,6 +24,8 @@ export interface Reading {
   /** share of non-empty cells whose colour a group explains (within NEAR) */
   coverage: number
   swatches: LegendSwatch[]
+  /** counts read off the legend print, by code (local reading only; the AI list has its own) */
+  printed?: Record<string, number>
 }
 
 export interface LegendEntry {
@@ -175,7 +178,15 @@ export function readLocally(img: Raster, rec: Recognition, render: TextRenderer)
     named.map((s) => s.colour),
     names.map((n) => !n.sure),
   )
-  return { ...m, swatches: named }
+  // the legend's own counts, read with digits learnt from how many cells each swatch got
+  const perSwatch = named.map(() => 0)
+  for (const k of nearest(rec, named.map((s) => s.colour)).assign) if (k >= 0) perSwatch[k]++
+  const printed: Record<string, number> = {}
+  readCounts(img, named, perSwatch).forEach((n, k) => {
+    const code = names[k].code
+    if (n !== null && !(code in printed) && names.filter((x) => x.code === code).length === 1) printed[code] = n
+  })
+  return { ...m, swatches: named, printed }
 }
 
 /**

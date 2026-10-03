@@ -80,6 +80,8 @@ for (const [key, which, file] of FILES) {
   const t1 = Date.now()
   const fitted = fitList(rec, list, local)
   const t2 = Date.now()
-  const loc = local ? `${agreement(tally(local), truth).toFixed(2)}% (${local.swatches.length} swatches, ${local.groups.length} codes, cover ${(local.coverage * 100).toFixed(0)}%, unsure ${local.unsureName.filter(Boolean).length})` : 'no legend found'
+  const printed = local?.printed ?? {}
+  const readRight = Object.entries(printed).filter(([c, n]) => truth[c] === n).length
+  const loc = local ? `${agreement(tally(local), truth).toFixed(2)}% (${local.swatches.length} swatches, ${local.groups.length} codes, cover ${(local.coverage * 100).toFixed(0)}%, unsure ${local.unsureName.filter(Boolean).length}; counts read ${readRight}/${Object.keys(printed).length} right of ${list.length})` : 'no legend found'
   console.log(`${key.padEnd(9)} ${which.padEnd(11)} board ${rec.cells.cols}x${rec.cells.rows} | local ${loc} ${t1 - t}ms | list ${agreement(tally(fitted), truth).toFixed(2)}% cover ${(fitted.coverage * 100).toFixed(0)}% ${t2 - t1}ms`)
 }
