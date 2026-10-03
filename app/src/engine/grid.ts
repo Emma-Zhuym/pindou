@@ -83,6 +83,14 @@ function mean(v: number[]): number {
  * fails, multiples of the true pitch pass, and the smallest passing pitch is the cell size.
  */
 export function findGrid(img: Raster, lo = 7, hi = 45): Grid {
+  // The pitch search covers 7-45px cells. Larger images (originals fetched from a link can have
+  // 40-60px cells) are searched on a reduced copy, and only the fine fit runs at full size.
+  const longSide = Math.max(img.width, img.height)
+  if (longSide > 1800) {
+    const f = longSide / 1500
+    const coarse = findGrid(reduce(img, f), lo, hi)
+    return refine(profile(img, 0), profile(img, 1), (coarse.perX + coarse.perY) / 2 * f)
+  }
   const px = profile(img, 0)
   const py = profile(img, 1)
   const pers: number[] = []
@@ -106,13 +114,18 @@ export function findGrid(img: Raster, lo = 7, hi = 45): Grid {
   const top = comb.reduce((a, b) => Math.max(a, b), 0)
   let i = comb.findIndex((v) => v >= 0.62 * top)
   while (i + 1 < pers.length && comb[i + 1] >= comb[i]) i++
-  const per = pers[i]
+  return refine(px, py, pers[i])
+}
 
+/** Exact pitch and phase per axis around a pitch estimate, then centred on the grid lines. */
+function refine(px: Float64Array, py: Float64Array, per: number): Grid {
+  // a small relative tolerance: +-0.08px up to 32px cells, then growing (about +-0.11px at 44px)
+  const span = Math.max(0.08, per * 0.0025)
   const fine = (p: Float64Array): [number, number] => {
     let best = -1
     let bp = per
     let bo = 0
-    for (let dp = -0.08; dp < 0.08; dp += 0.002) {
+    for (let dp = -span; dp < span; dp += span / 40) {
       for (let o = 0; o < per + dp; o += 0.1) {
         const s = mean(lineValues(p, per + dp, o))
         if (s > best) {
@@ -125,19 +138,60 @@ export function findGrid(img: Raster, lo = 7, hi = 45): Grid {
     return [bp, bo]
   }
   // The fit locks onto one edge of each grid line; move to the middle of the line so a cell box
-  // starts and ends on line centres and labels are not clipped.
+  // starts and ends on line centres and labels are not clipped. Lines get thicker with the
+  // cell size, so the search reaches further on big cells.
   const centre = (p: Float64Array, per: number, off: number) => {
-    const fold = [-2, -1, 0, 1, 2].map((d) => (off + d >= 0 ? mean(lineValues(p, per, off + d)) : 0))
-    const main = fold[2]
-    fold[2] = 0
-    let j = 0
-    for (let k = 1; k < 5; k++) if (fold[k] > fold[j]) j = k
-    const d2 = fold[j] >= 0.35 * main ? j - 2 : 0
+    const reach = Math.max(2, Math.round(per * 0.06))
+    let main = 0
+    let bestD = 0
+    let bestV = 0
+    for (let d = -reach; d <= reach; d++) {
+      const v = off + d >= 0 ? mean(lineValues(p, per, off + d)) : 0
+      if (d === 0) main = v
+      else if (v > bestV) {
+        bestV = v
+        bestD = d
+      }
+    }
+    const d2 = bestV >= 0.35 * main ? bestD : 0
     return (((off + d2 / 2 + 0.5) % per) + per) % per
   }
   const [perX, ox] = fine(px)
   const [perY, oy] = fine(py)
   return { perX, offX: centre(px, perX, ox), perY, offY: centre(py, perY, oy) }
+}
+
+/** Area-averaged copy, `f` times smaller in each direction. */
+export function reduce(img: Raster, f: number): Raster {
+  const w = Math.max(1, Math.floor(img.width / f))
+  const h = Math.max(1, Math.floor(img.height / f))
+  const out = new Uint8ClampedArray(w * h * 4)
+  for (let y = 0; y < h; y++) {
+    const y0 = Math.floor(y * f)
+    const y1 = Math.max(y0 + 1, Math.min(img.height, Math.floor((y + 1) * f)))
+    for (let x = 0; x < w; x++) {
+      const x0 = Math.floor(x * f)
+      const x1 = Math.max(x0 + 1, Math.min(img.width, Math.floor((x + 1) * f)))
+      let r = 0
+      let g = 0
+      let b = 0
+      for (let yy = y0; yy < y1; yy++) {
+        let i = (yy * img.width + x0) * 4
+        for (let xx = x0; xx < x1; xx++, i += 4) {
+          r += img.data[i]
+          g += img.data[i + 1]
+          b += img.data[i + 2]
+        }
+      }
+      const n = (y1 - y0) * (x1 - x0)
+      const o = (y * w + x) * 4
+      out[o] = r / n
+      out[o + 1] = g / n
+      out[o + 2] = b / n
+      out[o + 3] = 255
+    }
+  }
+  return { width: w, height: h, data: out }
 }
 
 /**
@@ -157,17 +211,23 @@ export function findBoard(img: Raster, grid: Grid): Extent {
       const j = rows ? i + 4 : i + W * 4
       return Math.abs(data[j] - data[i]) + Math.abs(data[j + 1] - data[i + 1]) + Math.abs(data[j + 2] - data[i + 2])
     }
+    // Lines get thicker with the cell size (and every 5th/10th one is thicker still), so the
+    // window around a line and the gap that still counts as "inside" are fractions of a cell.
+    const reach = Math.max(2, Math.round(per * 0.06))
+    const tolerance = Math.max(5, Math.round(perOther * 0.35))
     const idx: number[] = []
     for (let k = 0; k <= Math.floor((across - off) / per); k++) {
       const x = Math.round(off + k * per)
-      if (x >= 2 && x < across - 2) idx.push(x)
+      if (x >= reach && x < across - reach) idx.push(x)
     }
     const sig = new Float64Array(along)
     const tmp = new Float64Array(idx.length)
     for (let a = 0; a < along; a++) {
       for (let k = 0; k < idx.length; k++) {
         const x = idx[k]
-        tmp[k] = Math.max(edge(a, x - 2), edge(a, x - 1), edge(a, x), edge(a, x + 1))
+        let m = 0
+        for (let d = -reach; d < reach; d++) m = Math.max(m, edge(a, x + d))
+        tmp[k] = m
       }
       sig[a] = percentile(tmp, 65) // a line at a good share of the positions?
     }
@@ -176,7 +236,7 @@ export function findBoard(img: Raster, grid: Grid): Extent {
     let start = -1
     let gap = 0
     let cur = 0
-    for (let a = 0; a < along + 6; a++) {
+    for (let a = 0; a < along + tolerance + 1; a++) {
       const inside = a < along && sig[a] > thr
       if (inside) {
         if (start < 0) start = a
@@ -184,7 +244,7 @@ export function findBoard(img: Raster, grid: Grid): Extent {
         cur = a
       } else if (start >= 0) {
         gap++
-        if (gap > 5) {
+        if (gap > tolerance) {
           if (cur - start > best[1] - best[0]) best = [start, cur + 1]
           start = -1
         }

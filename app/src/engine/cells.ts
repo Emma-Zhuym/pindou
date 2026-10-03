@@ -1,5 +1,5 @@
 // Reading the cells of the gridded area: fill colour and label ink for each one.
-import type { Extent, Grid, Raster } from './grid'
+import { type Extent, type Grid, type Raster, reduce } from './grid'
 
 /** Label ink is resampled to INK x INK per cell so cells of any size compare directly. */
 export const INK = 40
@@ -21,7 +21,19 @@ export interface Cells {
   c0: number
 }
 
+/** Cells above this size are read from a reduced copy of the image. The label matcher compares
+ *  stacked labels with blurred font renderings; on very large, crisp cells an unusual typeface
+ *  (pixel fonts) stops resembling them, while at this size the labels are still sharp enough. */
+const READ_CELL = 24
+
 export function readCells(img: Raster, grid: Grid, ext: Extent, inset = 0.16): Cells {
+  const per = (grid.perX + grid.perY) / 2
+  if (per > READ_CELL * 1.15) {
+    const f = per / READ_CELL
+    const small = reduce(img, f)
+    const g = { perX: grid.perX / f, offX: grid.offX / f, perY: grid.perY / f, offY: grid.offY / f }
+    return readCells(small, g, ext, inset)
+  }
   const { width: W, height: H, data } = img
   const { rows, cols, r0, c0 } = ext
   const n = rows * cols
@@ -86,30 +98,36 @@ export function readCells(img: Raster, grid: Grid, ext: Extent, inset = 0.16): C
       fill[cell * 3 + 1] = fg
       fill[cell * 3 + 2] = fb
 
-      // sub-pixel resample of the whole cell (box average of the source area each sample covers)
+      // Sub-pixel resample of the whole cell to INK x INK. Cells bigger than INK pixels take
+      // several samples per point and average them, so thin label strokes are not skipped.
       const base = cell * INK * INK
       const sw = grid.perX / INK
       const sh = grid.perY / INK
+      const kx = Math.max(1, Math.ceil(sw))
+      const ky = Math.max(1, Math.ceil(sh))
       for (let v = 0; v < INK; v++) {
-        const sy = Math.min(H - 1.001, Math.max(0, y0 + (v + 0.5) * sh - 0.5))
-        const yi = Math.floor(sy)
-        const fy = sy - yi
         for (let u = 0; u < INK; u++) {
-          const sx = Math.min(W - 1.001, Math.max(0, x0 + (u + 0.5) * sw - 0.5))
-          const xi = Math.floor(sx)
-          const fx = sx - xi
-          const i00 = (yi * W + xi) * 4
-          const i01 = i00 + 4
-          const i10 = i00 + W * 4
-          const i11 = i10 + 4
           let d = 0
-          for (let ch = 0; ch < 3; ch++) {
-            const top = data[i00 + ch] * (1 - fx) + data[i01 + ch] * fx
-            const bot = data[i10 + ch] * (1 - fx) + data[i11 + ch] * fx
-            const val = top * (1 - fy) + bot * fy
-            d += Math.abs(val - (ch === 0 ? fr : ch === 1 ? fg : fb))
+          for (let a = 0; a < ky; a++) {
+            const sy = Math.min(H - 1.001, Math.max(0, y0 + (v + (a + 0.5) / ky) * sh - 0.5))
+            const yi = Math.floor(sy)
+            const fy = sy - yi
+            for (let b = 0; b < kx; b++) {
+              const sx = Math.min(W - 1.001, Math.max(0, x0 + (u + (b + 0.5) / kx) * sw - 0.5))
+              const xi = Math.floor(sx)
+              const fx = sx - xi
+              const i00 = (yi * W + xi) * 4
+              const i01 = i00 + 4
+              const i10 = i00 + W * 4
+              const i11 = i10 + 4
+              for (let ch = 0; ch < 3; ch++) {
+                const top = data[i00 + ch] * (1 - fx) + data[i01 + ch] * fx
+                const bot = data[i10 + ch] * (1 - fx) + data[i11 + ch] * fx
+                d += Math.abs(top * (1 - fy) + bot * fy - (ch === 0 ? fr : ch === 1 ? fg : fb))
+              }
+            }
           }
-          ink[base + v * INK + u] = Math.min(255, d)
+          ink[base + v * INK + u] = Math.min(255, d / (kx * ky))
         }
       }
     }

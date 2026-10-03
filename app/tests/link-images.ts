@@ -1,9 +1,9 @@
 // Charts fetched through Xiaohongshu share links (research/out/xhs/charts/, not committed:
-// they are other people's work) versus the phone-saved originals in samples/originals/.
+// they are other people's work) versus the phone-saved originals and the chat copies.
 // Two methods each: the current label-reading engine, and the automatic legend swatches
 // (legendSwatches.ts) with colour names taken from the legend's known order, which only
-// applies when every swatch was found. Each image runs as-is and, when it would shrink, with
-// cells scaled to about 20px. Run from app/:  npx tsx tests/link-images.ts
+// applies when every swatch was found. Three versions of each chart: the copy that went through
+// chat (samples/), the phone-saved file and the link original. Run from app/:  npx tsx tests/link-images.ts
 import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { createCanvas } from '@napi-rs/canvas'
@@ -29,33 +29,6 @@ const render: TextRenderer = (text, font, size, box) => {
   for (let y = 0; y < box * SS; y++) for (let x = 0; x < box * SS; x++) out[Math.floor(y / SS) * box + Math.floor(x / SS)] += px[(y * box * SS + x) * 4] / (255 * SS * SS)
   return out
 }
-/** Box-filter downscale by an integer-free factor (test-only; the engine is tuned for ~10-25px cells). */
-function shrink(img: Raster, f: number): Raster {
-  if (f <= 1) return img
-  const w = Math.floor(img.width / f)
-  const h = Math.floor(img.height / f)
-  const out = new Uint8ClampedArray(w * h * 4)
-  for (let y = 0; y < h; y++)
-    for (let x = 0; x < w; x++) {
-      const x0 = Math.floor(x * f), x1 = Math.max(x0 + 1, Math.floor((x + 1) * f))
-      const y0 = Math.floor(y * f), y1 = Math.max(y0 + 1, Math.floor((y + 1) * f))
-      let r = 0, g = 0, b = 0, n = 0
-      for (let yy = y0; yy < y1; yy++)
-        for (let xx = x0; xx < x1; xx++) {
-          const i = (yy * img.width + xx) * 4
-          r += img.data[i]
-          g += img.data[i + 1]
-          b += img.data[i + 2]
-          n++
-        }
-      const o = (y * w + x) * 4
-      out[o] = r / n
-      out[o + 1] = g / n
-      out[o + 2] = b / n
-      out[o + 3] = 255
-    }
-  return { width: w, height: h, data: out }
-}
 const load = (rel: string): Raster => {
   const img = jpeg.decode(readFileSync(fileURLToPath(new URL(`../../${rel}`, import.meta.url))), { useTArray: true, maxMemoryUsageInMB: 4096 })
   return { width: img.width, height: img.height, data: img.data }
@@ -74,24 +47,17 @@ const agreement = (counts: Map<string, number>, legend: Record<string, number>) 
 }
 
 for (const key of Object.keys(CHARTS)) {
+  const base = key === 'tree' ? 'tree-52x64' : key === 'dog' ? 'dog-104x104' : 'landscape-84x84'
   for (const [which, file] of [
-    ['phone-saved', `samples/originals/${key === 'tree' ? 'tree-52x64' : key === 'dog' ? 'dog-104x104' : 'landscape-84x84'}.jpg`],
+    ['chat-copy', `samples/${base}.jpg`],
+    ['phone-saved', `samples/originals/${base}.jpg`],
     ['link', `research/out/xhs/charts/${key}.jpg`],
   ]) {
     if (!existsSync(fileURLToPath(new URL(`../../${file}`, import.meta.url)))) {
       console.log(key, which, 'missing', file)
       continue
     }
-    const full = load(file)
-    for (const mode of ['as-is', 'cells-20px']) {
-    // 'cells-20px': a first pass on a small copy learns the cell size, then cells are brought to
-    // about 20px (only ever shrinking). Test-only; the engine itself has no scale step yet.
-    let img = full
-    if (mode === 'cells-20px') {
-      const probe = recognise(shrink(full, Math.max(1, full.width / 1100)), render)
-      img = shrink(full, Math.max(1, (probe.grid.perX * Math.max(1, full.width / 1100)) / 20))
-      if (img === full) continue
-    }
+    const img = load(file)
     const t = Date.now()
     const rec = recognise(img, render)
     const ms = Date.now() - t
@@ -119,8 +85,7 @@ for (const key of Object.keys(CHARTS)) {
       swatchScore = `${agreement(counts, legend).toFixed(2)}%`
     }
     console.log(
-      `${key.padEnd(9)} ${which.padEnd(11)} ${mode.padEnd(10)} ${full.width}x${full.height}->${img.width}x${img.height} cell ${rec.grid.perX.toFixed(1)}px board ${rec.cells.cols}x${rec.cells.rows} ${String(ms).padStart(5)}ms | label ${agreement(countByCode(rec), legend).toFixed(2)}% (${rec.groups.length} codes) | swatches found ${swatches.length}/${codes.length}, colour-match ${swatchScore}`,
+      `${key.padEnd(9)} ${which.padEnd(11)} ${img.width}x${img.height} cell ${rec.grid.perX.toFixed(1)}px board ${rec.cells.cols}x${rec.cells.rows} ${String(ms).padStart(5)}ms | label ${agreement(countByCode(rec), legend).toFixed(2)}% (${rec.groups.length} codes) | swatches found ${swatches.length}/${codes.length}, colour-match ${swatchScore}`,
     )
-    }
   }
 }
