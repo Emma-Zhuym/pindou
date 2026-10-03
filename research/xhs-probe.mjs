@@ -27,7 +27,7 @@ async function follow(url, ua) {
   let current = url
   for (let i = 0; i < 6; i++) {
     const res = await fetch(current, { redirect: 'manual', headers: { 'User-Agent': ua } })
-    chain.push({ url: current.replace(/xsec_token=[^&]+/, 'xsec_token=…'), status: res.status })
+    chain.push({ url: current.replace(/xsec_token(=|%3D)[^&%]+/g, 'xsec_token$1…'), status: res.status })
     const next = res.headers.get('location')
     if (res.status >= 300 && res.status < 400 && next) {
       current = new URL(next, current).toString()
