@@ -7,6 +7,7 @@ import { findLegend, outsideBoard, type Rect } from '../engine/legendArea'
 import { applyReading, fitList, needsHelp, type Reading, readLocally } from '../engine/legendRead'
 import { recognise, type Recognition } from '../engine/recognize'
 import { Icon } from '../Icon'
+import { LinkImport } from './LinkImport'
 import { boardThumb, codeOrder, css, GREY, ICONS } from '../shared'
 import { type Chart, countCells, ENGINE_VERSION, putChart, type Status, STATUS_LABEL } from '../store'
 
@@ -40,6 +41,8 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
   const [base, setBase] = useState<Recognition | null>(null)
   const [local, setLocal] = useState<Reading | null>(null)
   const [readNote, setReadNote] = useState('')
+  // a note title from link import, offered as the chart's name
+  const [suggested, setSuggested] = useState('')
   // what the vision model read off the legend, kept so a board change does not ask again
   const [aiLegend, setAiLegend] = useState<AiLegend | null>(null)
   const [localUnsure, setLocalUnsure] = useState(false)
@@ -261,7 +264,14 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
             busy={busy}
             error={error}
             note={readNote}
-            onOpen={(f) => open(f)}
+            onOpen={(f) => {
+              setSuggested('')
+              open(f)
+            }}
+            onLink={(f, title) => {
+              setSuggested(title)
+              open(f)
+            }}
             onBoard={(extent) => rec && file && open(file, undefined, { grid: rec.grid, extent }, aiLegend)}
             review={review}
             printedSize={aiLegend?.size}
@@ -277,7 +287,7 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
       </main>
       {asking && (
         <SaveSheet
-          initial={{ title: chart?.title ?? defaultTitle(), status: chart?.status ?? 'todo', tags: chart?.tags ?? [] }}
+          initial={{ title: chart?.title ?? (suggested || defaultTitle()), status: chart?.status ?? 'todo', tags: chart?.tags ?? [] }}
           onCancel={() => setAsking(false)}
           onSave={(meta) => {
             setAsking(false)
@@ -361,10 +371,11 @@ function ImportPage(props: {
   review: Partial<Record<Step, string>>
   printedSize?: { cols: number; rows: number }
   onOpen: (src: Blob | string) => void
+  onLink: (image: Blob, title: string) => void
   onBoard: (extent: Extent) => void
   onNext: () => void
 }) {
-  const { img, rec, names, assign, busy, error, note, review, printedSize, onOpen, onBoard, onNext } = props
+  const { img, rec, names, assign, busy, error, note, review, printedSize, onOpen, onLink, onBoard, onNext } = props
   const checks = STEPS.filter(([t]) => review[t])
   const board = useRef<HTMLCanvasElement>(null)
 
@@ -411,6 +422,7 @@ function ImportPage(props: {
         <strong>{busy || '选择图纸图片'}</strong>
         <span>也可以把图片拖进来，或直接粘贴</span>
       </label>
+      <LinkImport disabled={!!busy} onPick={onLink} />
       <div className="samples">
         <span>试用样本图：</span>
         {SAMPLES.map((s) => (
