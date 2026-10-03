@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { type AiSettings, loadAiSettings, readLegendWithAi } from '../ai'
+import { type AiLegend, type AiSettings, loadAiSettings, readLegendWithAi } from '../ai'
 import { loadImage, paintLabel, renderText, toRaster } from '../browser'
 import { CATALOGUE } from '../engine/glyphs'
 import type { Extent, Grid } from '../engine/grid'
@@ -19,6 +19,10 @@ const STEPS: [Step, string][] = [
 ]
 const SAMPLES = ['tree-52x64', 'landscape-84x84', 'portrait-50x70', 'dog-104x104']
 
+// below these a step is marked for checking by hand
+const COUNT_AGREEMENT = 0.98 // cells counted per code vs the printed legend counts
+const UNSURE_SHARE = 0.05 // cells the reading is unsure of
+
 /**
  * Recognising a new chart, or reopening a saved one to correct it. Full screen, over the tabs.
  */
@@ -36,6 +40,9 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
   const [base, setBase] = useState<Recognition | null>(null)
   const [local, setLocal] = useState<Reading | null>(null)
   const [readNote, setReadNote] = useState('')
+  // what the vision model read off the legend, kept so a board change does not ask again
+  const [aiLegend, setAiLegend] = useState<AiLegend | null>(null)
+  const [localUnsure, setLocalUnsure] = useState(false)
   const [names, setNamesState] = useState<string[]>([])
   const [assign, setAssignState] = useState<Int16Array>(new Int16Array(0))
   const [legend, setLegendState] = useState<Record<string, number>>({})
@@ -53,7 +60,7 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
   const setLegend = edited(setLegendState)
   const setLegendRect = edited(setLegendRectState)
 
-  async function open(src: Blob | string, saved?: Chart, board?: { grid: Grid; extent: Extent }) {
+  async function open(src: Blob | string, saved?: Chart, board?: { grid: Grid; extent: Extent }, known?: AiLegend | null) {
     setError('')
     setBusy(saved ? '正在打开…' : '正在识别…')
     try {
@@ -67,22 +74,24 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
       const localReading = readLocally(raster, first, renderText)
       const rect = saved ? saved.legendRect : (findLegend(raster, first) ?? outsideBoard(first, raster.width, raster.height))
       let reading = localReading
-      let printed: Record<string, number> = {}
+      let got: AiLegend | null = known ?? null
       let note = !localReading ? '没有在图上找到图例色块' : needsHelp(localReading) ? '本地读图例没把握' : '已按图例读出色号'
-      if (!saved && needsHelp(localReading)) {
+      if (!saved && !got && needsHelp(localReading)) {
         const ai = loadAiSettings()
         if (ai.key && ai.model && rect) {
           setBusy('AI 正在读图例…')
           try {
-            const list = await readLegendWithAi(image, rect, ai)
-            reading = fitList(first, list, localReading)
-            printed = Object.fromEntries(list.filter((e) => e.count !== undefined).map((e) => [e.code, e.count!]))
-            note = `AI 读出图例上 ${list.length} 个色号，已按颜色和颗数对到格子上`
+            got = await readLegendWithAi(image, rect, ai)
           } catch (e) {
             note += `；AI 读取失败：${e instanceof Error ? e.message : String(e)}`
           }
         } else note += '。可以在「色号」页让 AI 读图例（需先在设置里填 Key），或手动核对'
       }
+      if (got) {
+        reading = fitList(first, got.entries, localReading)
+        note = `AI 读出图例上 ${got.entries.length} 个色号，已按颜色和颗数对到格子上`
+      }
+      const printed: Record<string, number> = got ? Object.fromEntries(got.entries.filter((e) => e.count !== undefined).map((e) => [e.code, e.count!])) : {}
       const result = reading ? applyReading(first, reading) : first
       if (!result.groups.length && !saved) throw new Error('没有识别出带色号的格子，这张图可能不是带色号的图纸')
       let n = result.groups.map((g) => g.code)
@@ -110,6 +119,8 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
       setLocal(localReading)
       setRec(result)
       setReadNote(saved ? '' : note)
+      setAiLegend(got)
+      setLocalUnsure(!got && needsHelp(localReading))
       setNamesState(n)
       setAssignState(a)
       setLegendState(saved?.legend ?? printed)
@@ -128,8 +139,11 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
     const ai = loadAiSettings()
     const rect = legendRect ?? outsideBoard(base, img.naturalWidth, img.naturalHeight)
     if (!rect) throw new Error('先框选图例')
-    const list = await readLegendWithAi(img, rect, ai)
+    const got = await readLegendWithAi(img, rect, ai)
+    const list = got.entries
     const r = applyReading(base, fitList(base, list, local))
+    setAiLegend(got)
+    setLocalUnsure(false)
     const next = r.groups.map((g) => g.code)
     setRec(r)
     setNames(next)
@@ -149,6 +163,32 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
     for (const g of assign) if (g >= 0) m.set(names[g], (m.get(names[g]) ?? 0) + 1)
     return m
   }, [assign, names])
+
+  // steps worth checking by hand, with the reason shown on that step
+  const review = useMemo(() => {
+    const out: Partial<Record<Step, string>> = {}
+    if (!rec) return out
+    const size = aiLegend?.size
+    if (size && (size.cols !== rec.cells.cols || size.rows !== rec.cells.rows)) {
+      out.import = `图上印着 ${size.cols}×${size.rows}，现在框的是 ${rec.cells.cols}×${rec.cells.rows}，请调整图纸范围`
+    }
+    const found = [...counts.values()].reduce((a, b) => a + b, 0)
+    const printedTotal = aiLegend?.total
+    if (printedTotal && found !== printedTotal && !out.import) {
+      out.import = `图上印着共 ${printedTotal} 颗，现在数出 ${found} 颗，可能范围或空格判断有误`
+    }
+    const printed = Object.entries(legend)
+    if (printed.length) {
+      let off = 0
+      for (const c of new Set([...printed.map(([c]) => c), ...counts.keys()])) off += Math.abs((legend[c] ?? 0) - (counts.get(c) ?? 0))
+      const total = printed.reduce((a, [, n]) => a + n, 0)
+      const agree = total ? 1 - off / 2 / total : 1
+      if (agree < COUNT_AGREEMENT) out.codes = `识别颗数和图例只吻合 ${Math.round(agree * 100)}%，请核对色号`
+    } else if (localUnsure) out.codes = '本地读图例没把握，请核对色号（或让 AI 读图例）'
+    const unsure = rec.unsure.reduce((a, b) => a + b, 0)
+    if (found && unsure / found > UNSURE_SHARE) out.wall = `有 ${unsure} 格程序没把握，请逐格核对`
+    return out
+  }, [rec, counts, legend, aiLegend, localUnsure])
 
   async function save(meta: { title: string; status: Status; tags: string[] }) {
     if (!rec || !file) return
@@ -196,7 +236,7 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
         </button>
         <nav className="segmented glass steps" role="tablist" aria-label="步骤">
           {steps.map(([t, label]) => (
-            <button key={t} role="tab" aria-selected={step === t} disabled={t !== 'import' && !ready} onClick={() => setStep(t)}>
+            <button key={t} role="tab" aria-selected={step === t} disabled={t !== 'import' && !ready} onClick={() => setStep(t)} className={review[t] ? 'needs' : undefined} title={review[t]}>
               {label}
             </button>
           ))}
@@ -210,6 +250,7 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
         {busy && <span className="sub">{busy}</span>}
       </div>
       {error && step !== 'import' && <p className="error page-error">{error}</p>}
+      {step !== 'import' && review[step] && <p className="review page-error">{review[step]}</p>}
       <main>
         {step === 'import' && (
           <ImportPage
@@ -221,7 +262,9 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
             error={error}
             note={readNote}
             onOpen={(f) => open(f)}
-            onBoard={(extent) => rec && file && open(file, undefined, { grid: rec.grid, extent })}
+            onBoard={(extent) => rec && file && open(file, undefined, { grid: rec.grid, extent }, aiLegend)}
+            review={review}
+            printedSize={aiLegend?.size}
             onNext={() => setStep('codes')}
           />
         )}
@@ -315,11 +358,14 @@ function ImportPage(props: {
   busy: string
   error: string
   note: string
+  review: Partial<Record<Step, string>>
+  printedSize?: { cols: number; rows: number }
   onOpen: (src: Blob | string) => void
   onBoard: (extent: Extent) => void
   onNext: () => void
 }) {
-  const { img, rec, names, assign, busy, error, note, onOpen, onBoard, onNext } = props
+  const { img, rec, names, assign, busy, error, note, review, printedSize, onOpen, onBoard, onNext } = props
+  const checks = STEPS.filter(([t]) => review[t])
   const board = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
@@ -397,7 +443,18 @@ function ImportPage(props: {
             </div>
           </section>
           {note && <p className="hint">{note}</p>}
-          <BoardCheck key={`${rec.cells.r0},${rec.cells.c0},${rec.cells.rows},${rec.cells.cols}`} img={img} rec={rec} busy={!!busy} onApply={onBoard} />
+          {checks.length > 0 && (
+            <section className="card review">
+              <b>建议人工核对</b>
+              {checks.map(([t, label]) => (
+                <p key={t}>
+                  <span className="sub">{label}：</span>
+                  {review[t]}
+                </p>
+              ))}
+            </section>
+          )}
+          <BoardCheck key={`${rec.cells.r0},${rec.cells.c0},${rec.cells.rows},${rec.cells.cols}`} img={img} rec={rec} busy={!!busy} printedSize={printedSize} onApply={onBoard} />
           <section className="card compare">
             <figure>
               <img src={img.src} alt="原图" />
@@ -418,7 +475,7 @@ function ImportPage(props: {
 }
 
 /** The board the recogniser settled on, drawn over the image, with each edge movable by whole cells. */
-function BoardCheck({ img, rec, busy, onApply }: { img: HTMLImageElement; rec: Recognition; busy: boolean; onApply: (e: Extent) => void }) {
+function BoardCheck({ img, rec, busy, printedSize, onApply }: { img: HTMLImageElement; rec: Recognition; busy: boolean; printedSize?: { cols: number; rows: number }; onApply: (e: Extent) => void }) {
   const found = { r0: rec.cells.r0, c0: rec.cells.c0, rows: rec.cells.rows, cols: rec.cells.cols }
   const [ext, setExt] = useState(found)
   const ref = useRef<HTMLCanvasElement>(null)
@@ -472,8 +529,8 @@ function BoardCheck({ img, rec, busy, onApply }: { img: HTMLImageElement; rec: R
     <section className="card boardcheck">
       <div className="row">
         <b>图纸范围</b>
-        <span className="sub">
-          {ext.cols} 列 × {ext.rows} 行
+        <span className={printedSize && (printedSize.cols !== ext.cols || printedSize.rows !== ext.rows) ? 'sub bad' : 'sub'}>
+          {ext.cols} 列 × {ext.rows} 行{printedSize && `（图上印着 ${printedSize.cols} × ${printedSize.rows}）`}
         </span>
       </div>
       <canvas ref={ref} className="boardcanvas" />

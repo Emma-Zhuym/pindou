@@ -42,13 +42,25 @@ function legendCrop(img: HTMLImageElement, rect: Rect): string {
 
 const PROMPT = [
   '这是一张拼豆图纸的图例（色卡）部分。图例里每一项是一个 MARD 色号（一个大写字母加数字，例如 A1、B30、H07、M15，少数是 ZG 加数字），通常还印着这个色号的颗数。',
-  '请按图例上的顺序（从上到下、从左到右）列出全部色号和颗数，只输出 JSON，不要任何其他文字：',
-  '{"legend": [{"code": "A1", "count": 3150}, {"code": "H2", "count": 1599}]}',
-  '读不清的颗数填 null；不是色号的文字（标题、作者、水印、总数）不要列出。',
+  '请按图例上的顺序（从上到下、从左到右）列出全部色号和颗数；如果图上还印着图纸尺寸（如"规格 93×62""尺寸: 104 x 104"，宽在前、高在后）或总颗数（如"总计 3971 颗""总豆数: 10816"），也一并读出。只输出 JSON，不要任何其他文字：',
+  '{"legend": [{"code": "A1", "count": 3150}, {"code": "H2", "count": 1599}], "size": {"cols": 93, "rows": 62}, "total": 3971}',
+  '读不清的颗数填 null；图上没印尺寸或总数就填 null。不是色号的文字（标题、作者、水印、总数）不要列进 legend。',
 ].join('\n')
 
-/** Codes and counts as printed in the legend, in printed order. Only the legend crop is sent. */
-export async function readLegendWithAi(img: HTMLImageElement, rect: Rect, settings: AiSettings): Promise<LegendEntry[]> {
+export interface AiLegend {
+  /** codes and counts in printed order */
+  entries: LegendEntry[]
+  /** board size printed on the chart, if any */
+  size?: { cols: number; rows: number }
+  /** total bead count printed on the chart, if any */
+  total?: number
+}
+
+const whole = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.round(v) : undefined)
+
+/** What the legend prints: codes and counts, and the board size and total when shown. Only the
+ *  legend crop is sent. */
+export async function readLegendWithAi(img: HTMLImageElement, rect: Rect, settings: AiSettings): Promise<AiLegend> {
   const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: { Authorization: `Bearer ${settings.key}`, 'Content-Type': 'application/json' },
@@ -62,7 +74,7 @@ export async function readLegendWithAi(img: HTMLImageElement, rect: Rect, settin
   const text: string = (await res.json())?.choices?.[0]?.message?.content ?? ''
   const json = /\{[\s\S]*\}/.exec(text)?.[0]
   if (!json) throw new Error('AI 没有返回可解析的结果')
-  const parsed = JSON.parse(json) as { legend?: { code?: unknown; count?: unknown }[] }
+  const parsed = JSON.parse(json) as { legend?: { code?: unknown; count?: unknown }[]; size?: { cols?: unknown; rows?: unknown } | null; total?: unknown }
   const out: LegendEntry[] = []
   for (const e of parsed.legend ?? []) {
     if (typeof e?.code !== 'string') continue
@@ -72,5 +84,7 @@ export async function readLegendWithAi(img: HTMLImageElement, rect: Rect, settin
     out.push({ code, count: typeof e.count === 'number' && Number.isFinite(e.count) ? Math.round(e.count) : undefined })
   }
   if (!out.length) throw new Error('AI 没有在图例里读到色号')
-  return out
+  const cols = whole(parsed.size?.cols)
+  const rows = whole(parsed.size?.rows)
+  return { entries: out, size: cols && rows ? { cols, rows } : undefined, total: whole(parsed.total) }
 }
