@@ -1,0 +1,166 @@
+{
+  "seed": 20261002,
+  "sampleSize": 36,
+  "readable": 30,
+  "excludedTiles": [
+    7,
+    8,
+    13,
+    23,
+    31,
+    35
+  ],
+  "notes": "Labels manually read from original cell crops before comparison. Ambiguous tiles excluded. Small exploratory audit, not a whole-image accuracy estimate. This check excludes unreadable cells and cannot evaluate recognition of the three watermarked legend swatches.",
+  "labels": [
+    {
+      "tile": 1,
+      "index": 55,
+      "code": "H7"
+    },
+    {
+      "tile": 2,
+      "index": 65,
+      "code": "G14"
+    },
+    {
+      "tile": 3,
+      "index": 341,
+      "code": "E21"
+    },
+    {
+      "tile": 4,
+      "index": 383,
+      "code": "D19"
+    },
+    {
+      "tile": 5,
+      "index": 468,
+      "code": "M7"
+    },
+    {
+      "tile": 6,
+      "index": 579,
+      "code": "D19"
+    },
+    {
+      "tile": 9,
+      "index": 877,
+      "code": "H7"
+    },
+    {
+      "tile": 10,
+      "index": 1092,
+      "code": "D19"
+    },
+    {
+      "tile": 11,
+      "index": 1114,
+      "code": "F11"
+    },
+    {
+      "tile": 12,
+      "index": 1171,
+      "code": "G14"
+    },
+    {
+      "tile": 14,
+      "index": 1447,
+      "code": "G14"
+    },
+    {
+      "tile": 15,
+      "index": 1517,
+      "code": "H7"
+    },
+    {
+      "tile": 16,
+      "index": 1550,
+      "code": "H2"
+    },
+    {
+      "tile": 17,
+      "index": 1662,
+      "code": "M12"
+    },
+    {
+      "tile": 18,
+      "index": 1842,
+      "code": "E21"
+    },
+    {
+      "tile": 19,
+      "index": 1953,
+      "code": "F20"
+    },
+    {
+      "tile": 20,
+      "index": 2041,
+      "code": "E11"
+    },
+    {
+      "tile": 21,
+      "index": 2098,
+      "code": "E1"
+    },
+    {
+      "tile": 22,
+      "index": 2116,
+      "code": "M8"
+    },
+    {
+      "tile": 24,
+      "index": 2493,
+      "code": "E11"
+    },
+    {
+      "tile": 25,
+      "index": 2504,
+      "code": "E1"
+    },
+    {
+      "tile": 26,
+      "index": 2597,
+      "code": "E1"
+    },
+    {
+      "tile": 27,
+      "index": 2630,
+      "code": "E1"
+    },
+    {
+      "tile": 28,
+      "index": 2665,
+      "code": "D19"
+    },
+    {
+      "tile": 29,
+      "index": 2774,
+      "code": "E16"
+    },
+    {
+      "tile": 30,
+      "index": 2791,
+      "code": "E11"
+    },
+    {
+      "tile": 32,
+      "index": 2951,
+      "code": "D19"
+    },
+    {
+      "tile": 33,
+      "index": 3009,
+      "code": "H10"
+    },
+    {
+      "tile": 34,
+      "index": 3114,
+      "code": "F24"
+    },
+    {
+      "tile": 36,
+      "index": 3360,
+      "code": "F11"
+    }
+  ]
+}
