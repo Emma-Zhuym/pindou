@@ -3,10 +3,11 @@ import './App.css'
 import { type AiSettings, listVisionModels, loadAiSettings, type ModelInfo, saveAiSettings } from './ai'
 import { BeadMode } from './bead/BeadMode'
 import { Editor } from './edit/Editor'
+import { StockPage } from './stock/StockPage'
 import { Flow } from './flow/Flow'
 import { Icon } from './Icon'
 import { codeColour, codeOrder, drawBoard, ICONS } from './shared'
-import { type Chart, deleteChart, exportBackup, importBackup, listCharts, persist, putChart, type Status, STATUS_LABEL } from './store'
+import { type Chart, changeStock, deleteChart, exportBackup, getStock, importBackup, listCharts, persist, putChart, type Status, STATUS_LABEL, type Stock } from './store'
 
 type Tab = 'charts' | 'stock' | 'settings'
 const TABS: [Tab, string][] = [
@@ -123,7 +124,7 @@ export default function App() {
           ) : (
             <Library charts={charts} error={loadError} onOpen={(id) => setOpenId(id)} onNew={() => setFlow({})} />
           ))}
-        {tab === 'stock' && <StockPage />}
+        {tab === 'stock' && <StockPage charts={charts} />}
         {tab === 'settings' && <SettingsPage onRestored={reload} count={charts?.length ?? 0} />}
       </main>
       <div className="dock">
@@ -224,6 +225,9 @@ function ChartCard({ chart, onOpen }: { chart: Chart; onOpen: () => void }) {
   )
 }
 
+/** when a change is saved */
+const stamp = () => Date.now()
+
 function ChartDetail(props: { chart: Chart; onBack: () => void; onEdit: () => void; onBead: () => void; onDraw: () => void; onChange: (c: Chart) => Promise<void>; onDelete: () => Promise<void> }) {
   const { chart, onBack, onEdit, onBead, onDraw, onChange, onDelete } = props
   const board = useRef<HTMLCanvasElement>(null)
@@ -231,12 +235,32 @@ function ChartDetail(props: { chart: Chart; onBack: () => void; onEdit: () => vo
   const [view, setView] = useState<'board' | 'original'>('board')
   const [title, setTitle] = useState(chart.title)
   const [tagText, setTagText] = useState('')
+  const [stock, setStock] = useState<Stock | null>(null)
+  useEffect(() => {
+    getStock().then(setStock)
+  }, [chart])
 
   useEffect(() => {
     if (board.current) drawBoard(board.current, chart.cols, chart.rows, chart.cells, 1200)
   }, [chart, view])
 
-  const update = (patch: Partial<Chart>) => onChange({ ...chart, ...patch, updatedAt: Date.now() })
+  function update(patch: Partial<Chart>) {
+    return onChange({ ...chart, ...patch, updatedAt: stamp() })
+  }
+  // marking a chart done takes its beads out of the stock (once); undoing that can put them back
+  const setStatus = async (status: Status) => {
+    if (status === chart.status) return
+    const patch: Partial<Chart> = { status }
+    const beads = Object.values(chart.counts).reduce((a, b) => a + b, 0)
+    if (status === 'done' && !chart.stockTaken && window.confirm(`拼完啦！从库存里扣掉这张图用的 ${beads} 颗豆子吗？`)) {
+      await changeStock({ kind: 'used', note: chart.title, chartId: chart.id, delta: Object.fromEntries(Object.entries(chart.counts).map(([c, n]) => [c, -n])) })
+      patch.stockTaken = true
+    } else if (status !== 'done' && chart.stockTaken && window.confirm('这张图拼完时扣过库存，要把豆子加回库存吗？')) {
+      await changeStock({ kind: 'returned', note: chart.title, chartId: chart.id, delta: chart.counts })
+      patch.stockTaken = false
+    }
+    await update(patch)
+  }
   const rows = Object.entries(chart.counts).sort((a, b) => codeOrder(a[0], b[0]))
   const total = rows.reduce((a, [, n]) => a + n, 0)
   const legendCodes = Object.keys(chart.legend)
@@ -269,7 +293,7 @@ function ChartDetail(props: { chart: Chart; onBack: () => void; onEdit: () => vo
       />
       <div className="segmented" role="radiogroup" aria-label="状态">
         {(Object.keys(STATUS_LABEL) as Status[]).map((s) => (
-          <button key={s} role="radio" aria-checked={chart.status === s} aria-selected={chart.status === s} onClick={() => update({ status: s })}>
+          <button key={s} role="radio" aria-checked={chart.status === s} aria-selected={chart.status === s} onClick={() => setStatus(s)}>
             {STATUS_LABEL[s]}
           </button>
         ))}
@@ -320,6 +344,11 @@ function ChartDetail(props: { chart: Chart; onBack: () => void; onEdit: () => vo
             <span className="swatch" style={{ background: codeColour(code) }} />
             <b>{code}</b>
             {chart.legend[code] !== undefined && chart.legend[code] !== n && <span className="sub">图例 {chart.legend[code]}</span>}
+            {stock && chart.status !== 'done' && (
+              <span className={(stock.beads[code] ?? 0) < n ? 'sub bad' : 'sub'}>
+                {(stock.beads[code] ?? 0) < n ? `库存 ${stock.beads[code] ?? 0}，缺 ${n - (stock.beads[code] ?? 0)}` : `库存 ${stock.beads[code]}`}
+              </span>
+            )}
             <span className="num">{n}</span>
           </div>
         ))}
@@ -337,22 +366,6 @@ function ChartDetail(props: { chart: Chart; onBack: () => void; onEdit: () => vo
 }
 
 // ------------------------------------------------------------------ stock
-
-function StockPage() {
-  return (
-    <div className="page">
-      <header className="title flat">
-        <h1>库存</h1>
-      </header>
-      <section className="card empty">
-        <b>还没做</b>
-        <p className="hint">计划：按色号记豆子库存，图纸标成"已拼"时自动扣掉用量；也能勾几张图纸算一共要备多少豆子。</p>
-      </section>
-    </div>
-  )
-}
-
-// ------------------------------------------------------------------ settings
 
 function SettingsPage({ onRestored, count }: { onRestored: () => Promise<void>; count: number }) {
   const [ai, setAi] = useState<AiSettings>(loadAiSettings)

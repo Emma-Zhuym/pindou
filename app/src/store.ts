@@ -32,30 +32,51 @@ export interface Chart {
   /** where the board lies in the image, as confirmed when saved; `cells` follows it. Missing on
    *  charts saved before it was kept: reopening then has to find it again. */
   board?: { grid: Grid; extent: Extent }
+  /** its beads were taken out of the stock when it was marked done (so they are not taken twice) */
+  stockTaken?: boolean
   /** beading progress: pegboard and mirroring chosen, codes ticked off, seconds spent */
   progress?: { board?: number; mirror?: boolean; labels?: boolean; offset?: { x: number; y: number }; done: string[]; seconds: number }
 }
 
 const DB = 'pindou'
 const STORE = 'charts'
+/** single records by id: the bead stock */
+const META = 'meta'
 
 function db(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB, 1)
-    req.onupgradeneeded = () => req.result.createObjectStore(STORE, { keyPath: 'id' })
-    req.onsuccess = () => resolve(req.result)
+    const req = indexedDB.open(DB, 2)
+    req.onupgradeneeded = () => {
+      const d = req.result
+      if (!d.objectStoreNames.contains(STORE)) d.createObjectStore(STORE, { keyPath: 'id' })
+      if (!d.objectStoreNames.contains(META)) d.createObjectStore(META, { keyPath: 'id' })
+    }
+    req.onsuccess = () => {
+      // another tab opening a newer version must not wait on this connection
+      req.result.onversionchange = () => req.result.close()
+      resolve(req.result)
+    }
     req.onerror = () => reject(req.error)
   })
 }
 
-async function run<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest): Promise<T> {
+async function run<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest, store = STORE): Promise<T> {
   const d = await db()
   return new Promise((resolve, reject) => {
-    const tx = d.transaction(STORE, mode)
-    const req = fn(tx.objectStore(STORE))
-    tx.oncomplete = () => resolve(req.result as T)
-    tx.onerror = () => reject(tx.error)
-    tx.onabort = () => reject(tx.error)
+    const tx = d.transaction(store, mode)
+    const req = fn(tx.objectStore(store))
+    tx.oncomplete = () => {
+      d.close()
+      resolve(req.result as T)
+    }
+    tx.onerror = () => {
+      d.close()
+      reject(tx.error)
+    }
+    tx.onabort = () => {
+      d.close()
+      reject(tx.error)
+    }
   })
 }
 
@@ -80,6 +101,57 @@ export function countCells(cells: string[]): Record<string, number> {
   return out
 }
 
+// ------------------------------------------------------------------ stock
+
+export interface StockEntry {
+  at: number
+  kind: 'restock' | 'used' | 'returned' | 'set'
+  /** what it was, for the record: "补货", a chart's title */
+  note: string
+  /** beads added (positive) or taken (negative), by code */
+  delta: Record<string, number>
+  chartId?: string
+}
+
+export interface Stock {
+  id: 'stock'
+  /** beads on hand, by code */
+  beads: Record<string, number>
+  /** newest first */
+  log: StockEntry[]
+  updatedAt: number
+}
+
+const LOG_KEEP = 300
+
+export async function getStock(): Promise<Stock> {
+  return (await run<Stock | undefined>('readonly', (s) => s.get('stock'), META)) ?? { id: 'stock', beads: {}, log: [], updatedAt: 0 }
+}
+
+export const putStock = (s: Stock) => run<IDBValidKey>('readwrite', (st) => st.put(s), META)
+
+/** Adds (or with negative numbers takes) beads and records it; counts never go below zero. */
+export async function changeStock(entry: Omit<StockEntry, 'at'>): Promise<Stock> {
+  const stock = await getStock()
+  const beads = { ...stock.beads }
+  for (const [code, n] of Object.entries(entry.delta)) beads[code] = Math.max(0, (beads[code] ?? 0) + n)
+  const next: Stock = { ...stock, beads, log: [{ ...entry, at: Date.now() }, ...stock.log].slice(0, LOG_KEEP), updatedAt: Date.now() }
+  await putStock(next)
+  return next
+}
+
+/** Takes back the newest record. */
+export async function undoStock(): Promise<Stock> {
+  const stock = await getStock()
+  const [last, ...rest] = stock.log
+  if (!last) return stock
+  const beads = { ...stock.beads }
+  for (const [code, n] of Object.entries(last.delta)) beads[code] = Math.max(0, (beads[code] ?? 0) - n)
+  const next: Stock = { ...stock, beads, log: rest, updatedAt: Date.now() }
+  await putStock(next)
+  return next
+}
+
 // ------------------------------------------------------------------ backup
 
 const toDataUrl = (b: Blob) =>
@@ -95,7 +167,7 @@ export async function exportBackup(): Promise<Blob> {
   const charts = await listCharts()
   const out = []
   for (const c of charts) out.push({ ...c, image: await toDataUrl(c.image), thumb: await toDataUrl(c.thumb) })
-  return new Blob([JSON.stringify({ app: 'pindou', version: 1, exportedAt: Date.now(), charts: out })], { type: 'application/json' })
+  return new Blob([JSON.stringify({ app: 'pindou', version: 2, exportedAt: Date.now(), charts: out, stock: await getStock() })], { type: 'application/json' })
 }
 
 /** Adds the charts from a backup; a chart that is already here is kept if it is newer. */
@@ -114,5 +186,7 @@ export async function importBackup(file: Blob): Promise<{ added: number; updated
     if (existing) result.updated++
     else result.added++
   }
+  // the stock comes along when the backup's is newer than this device's
+  if (data.stock?.id === 'stock' && data.stock.updatedAt > (await getStock()).updatedAt) await putStock(data.stock)
   return result
 }
