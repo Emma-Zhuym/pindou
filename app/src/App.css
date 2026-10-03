@@ -1290,3 +1290,82 @@ img.boardview {
   width: 100%;
   align-items: baseline;
 }
+
+/* ---------------------------------------------------------------- usage */
+
+.pickbar {
+  position: sticky;
+  top: calc(8px + env(safe-area-inset-top));
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 16px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 999px;
+  background: var(--glass);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+.pickbar > span {
+  flex: 1;
+}
+.chartcard.picking {
+  outline: 2px solid transparent;
+  outline-offset: -2px;
+}
+.chartcard.picking.on {
+  outline-color: var(--accent);
+}
+.chartcard .pick {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.25);
+  color: #fff;
+  font-weight: 700;
+}
+.chartcard.on .pick {
+  background: var(--accent);
+}
+.usagerow {
+  grid-template-columns: 20px 48px 1fr auto;
+}
+.usagerow .num {
+  font-weight: 600;
+  text-align: right;
+}
+.tablepaste {
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--fill, rgba(120, 120, 128, 0.12));
+  font: 14px ui-monospace, SFMono-Regular, monospace;
+  resize: vertical;
+}
+.skipped {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+.skipped span {
+  display: block;
+}
+.title > button.small { margin-left: auto; align-self: center; }
+.segmented.full {
+  width: 100%;
+}
+.stockrow .num.zero {
+  color: var(--sub);
+  font-weight: 400;
+}
