@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { type AiLegend, type AiSettings, loadAiSettings, readLegendWithAi } from '../ai'
+import { type AiLegend, type AiSettings, loadAiSettings, readCellsWithAi, readLegendWithAi } from '../ai'
 import { loadImage, paintLabel, renderText, toRaster } from '../browser'
 import { CATALOGUE } from '../engine/glyphs'
 import { type Extent, findBoard, findGrid, type Grid, type Raster } from '../engine/grid'
@@ -21,6 +21,7 @@ const STEPS: [Step, string][] = [
 const SAMPLES = ['tree-52x64', 'landscape-84x84', 'portrait-50x70', 'dog-104x104']
 
 // below these a step is marked for checking by hand
+const MAX_CELLS_CHECKED = 300 // cells shown to the model per run (three requests)
 const COUNT_AGREEMENT = 0.98 // cells counted per code vs the printed legend counts
 const UNSURE_SHARE = 0.05 // cells the reading is unsure of
 
@@ -99,10 +100,26 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
         note = `AI 读出图例上 ${got.entries.length} 个色号，已按颜色和颗数对到格子上`
       }
       const printed: Record<string, number> = got ? Object.fromEntries(got.entries.filter((e) => e.count !== undefined).map((e) => [e.code, e.count!])) : {}
-      const result = reading ? applyReading(first, reading) : first
+      let result = reading ? applyReading(first, reading) : first
       if (!result.groups.length && !saved) throw new Error('没有识别出带色号的格子，这张图可能不是带色号的图纸')
       let n = result.groups.map((g) => g.code)
       let a = Int16Array.from(result.assign)
+      // with a key set, the model also reads the cells the recogniser is unsure of
+      const ai = loadAiSettings()
+      if (!saved && ai.key && ai.model) {
+        setBusy('AI 正在核对没把握的格子…')
+        try {
+          const checked = await checkCells(image, result, n, a, ai)
+          if (checked) {
+            n = checked.names
+            a = checked.assign
+            result = checked.rec
+            note += `；AI 核对了 ${checked.asked} 个没把握的格子，改了 ${checked.changed} 格`
+          }
+        } catch (e) {
+          note += `；AI 核对格子失败：${e instanceof Error ? e.message : String(e)}`
+        }
+      }
       if (saved) {
         const sameRun = saved.edit.engine === ENGINE_VERSION && saved.edit.assign.length === result.assign.length && saved.edit.names.length >= result.groups.length
         if (sameRun) {
@@ -138,6 +155,17 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
     } finally {
       setBusy('')
     }
+  }
+
+  /** Ask the vision model to read the doubtful cells again (from the review page). */
+  async function askCells(): Promise<string> {
+    if (!img || !rec) return ''
+    const checked = await checkCells(img, rec, names, assign, loadAiSettings())
+    if (!checked) return '没有需要核对的格子'
+    setRec(checked.rec)
+    setNames(checked.names)
+    setAssign(checked.assign)
+    return `AI 核对了 ${checked.asked} 格，改了 ${checked.changed} 格`
   }
 
   /** Ask the vision model to read the legend and lay its list onto the board; returns the new names. */
@@ -286,7 +314,7 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
         {step === 'codes' && img && rec && (
           <CodesPage img={img} rec={rec} names={names} counts={counts} legend={legend} legendRect={legendRect} onNames={setNames} onLegend={setLegend} onLegendRect={setLegendRect} onAskAi={askAi} onNext={() => setStep('wall')} />
         )}
-        {step === 'wall' && img && rec && <WallPage img={img} rec={rec} names={names} assign={assign} counts={counts} legend={legend} onAssign={setAssign} onNames={setNames} />}
+        {step === 'wall' && img && rec && <WallPage img={img} rec={rec} names={names} assign={assign} counts={counts} legend={legend} onAssign={setAssign} onNames={setNames} onAskCells={askCells} />}
         {step === 'list' && img && rec && <ListPage counts={counts} legend={legend} onSave={() => setAsking(true)} />}
         {!ready && step !== 'import' && <p className="hint page-error">{busy || '没能打开这张图纸'}</p>}
       </main>
@@ -302,6 +330,44 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
       )}
     </div>
   )
+}
+
+/** Cells worth showing the model: unsure beads, and empty cells with print and beads around. */
+function doubtfulCells(rec: Recognition, assign: Int16Array): number[] {
+  const { cols, rows, share } = rec.cells
+  const beadsAround = (i: number) => {
+    const x = i % cols
+    const y = (i - x) / cols
+    return [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]].filter(([a, b]) => a >= 0 && b >= 0 && a < cols && b < rows && assign[b * cols + a] >= 0).length
+  }
+  const out: number[] = []
+  for (let i = 0; i < assign.length; i++) {
+    if (assign[i] >= 0 ? rec.unsure[i] : share[i] > 0.06 && beadsAround(i) >= 2) out.push(i)
+  }
+  // least sure first, in case there are more than one look can take
+  return out.sort((a, b) => rec.confidence[a] - rec.confidence[b]).slice(0, MAX_CELLS_CHECKED)
+}
+
+/** The model's reading of doubtful cells laid onto the board: read codes replace the guess, and the
+ *  cell counts as checked. Cells it saw no code in are left as they were. */
+async function checkCells(img: HTMLImageElement, rec: Recognition, names: string[], assign: Int16Array, ai: AiSettings) {
+  const cells = doubtfulCells(rec, assign)
+  const codes = [...new Set(names.filter(Boolean))]
+  if (!cells.length || !codes.length) return null
+  const read = await readCellsWithAi(img, rec, cells, codes, ai)
+  const nextNames = [...names]
+  const nextAssign = Int16Array.from(assign)
+  const unsure = Uint8Array.from(rec.unsure)
+  let changed = 0
+  for (const [cell, code] of read) {
+    if (!code) continue
+    let g = nextNames.indexOf(code)
+    if (g < 0) g = nextNames.push(code) - 1
+    if (nextAssign[cell] !== g) changed++
+    nextAssign[cell] = g
+    unsure[cell] = 0
+  }
+  return { names: nextNames, assign: nextAssign, rec: { ...rec, unsure }, asked: cells.length, changed }
 }
 
 /**
@@ -1067,8 +1133,13 @@ function WallPage(props: {
   legend: Record<string, number>
   onAssign: (a: Int16Array) => void
   onNames: (n: string[]) => void
+  onAskCells: () => Promise<string>
 }) {
-  const { img, rec, names, assign, counts, legend, onAssign, onNames } = props
+  const { img, rec, names, assign, counts, legend, onAssign, onNames, onAskCells } = props
+  const [ai] = useState<AiSettings>(loadAiSettings)
+  const [checking, setChecking] = useState(false)
+  const [checkNote, setCheckNote] = useState('')
+  const doubtful = useMemo(() => doubtfulCells(rec, assign).length, [rec, assign])
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [picking, setPicking] = useState(false)
   const [custom, setCustom] = useState('')
@@ -1135,6 +1206,28 @@ function WallPage(props: {
       <label className="toggle">
         <input type="checkbox" checked={onlyUnsure} onChange={(e) => setOnlyUnsure(e.target.checked)} /> 只看没把握的
       </label>
+      {ai.key && ai.model && doubtful > 0 && (
+        <div className="row">
+          <button
+            className="link"
+            disabled={checking}
+            onClick={async () => {
+              setChecking(true)
+              setCheckNote('')
+              try {
+                setCheckNote(await onAskCells())
+              } catch (e) {
+                setCheckNote(e instanceof Error ? e.message : String(e))
+              } finally {
+                setChecking(false)
+              }
+            }}
+          >
+            {checking ? 'AI 核对中…' : `让 AI 核对没把握的 ${doubtful} 格`}
+          </button>
+          {checkNote && <span className="sub">{checkNote}</span>}
+        </div>
+      )}
       {blanks.length > 0 && (() => {
         const shownBlanks = onlyUnsure ? blanks.filter((c) => rec.cells.share[c] > 0.06) : blanks
         if (!shownBlanks.length) return null

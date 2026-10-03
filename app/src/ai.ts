@@ -4,6 +4,7 @@
 import { CATALOGUE } from './engine/glyphs'
 import type { Rect } from './engine/legendArea'
 import type { LegendEntry } from './engine/legendRead'
+import type { Recognition } from './engine/recognize'
 
 export interface AiSettings {
   key: string
@@ -111,4 +112,76 @@ export async function listVisionModels(key: string): Promise<ModelInfo[]> {
       return { id: m.id, name: m.name ?? m.id, inputPrice: Number.isFinite(p) && p >= 0 ? p * 1e6 : undefined }
     })
     .sort((a, b) => (a.inputPrice ?? Infinity) - (b.inputPrice ?? Infinity) || a.name.localeCompare(b.name))
+}
+
+const CELL_TILE = 72
+const TILES_PER_ROW = 10
+const CELLS_PER_REQUEST = 100
+
+/** Numbered tiles of the given cells, cut from the image as they are (watermark and all). */
+function cellSheet(img: HTMLImageElement, rec: Recognition, cells: number[]): string {
+  const rows = Math.ceil(cells.length / TILES_PER_ROW)
+  const pitch = CELL_TILE + 12
+  const head = 22
+  const c = document.createElement('canvas')
+  c.width = TILES_PER_ROW * pitch + 12
+  c.height = rows * (pitch + head) + 12
+  const ctx = c.getContext('2d')!
+  ctx.fillStyle = '#fff'
+  ctx.fillRect(0, 0, c.width, c.height)
+  ctx.imageSmoothingQuality = 'high'
+  const { grid, cells: board } = rec
+  cells.forEach((cell, k) => {
+    const x = 12 + (k % TILES_PER_ROW) * pitch
+    const y = 12 + Math.floor(k / TILES_PER_ROW) * (pitch + head)
+    ctx.fillStyle = '#c00'
+    ctx.font = 'bold 16px sans-serif'
+    ctx.fillText(String(k + 1), x, y + 16)
+    const sx = grid.offX + (board.c0 + (cell % board.cols)) * grid.perX
+    const sy = grid.offY + (board.r0 + Math.floor(cell / board.cols)) * grid.perY
+    ctx.drawImage(img, sx, sy, grid.perX, grid.perY, x, y + head, CELL_TILE, CELL_TILE)
+    ctx.strokeStyle = '#999'
+    ctx.strokeRect(x - 0.5, y + head - 0.5, CELL_TILE + 1, CELL_TILE + 1)
+  })
+  return c.toDataURL('image/png')
+}
+
+/**
+ * The code printed in each of the given cells, read by the model from numbered tiles. Codes are
+ * limited to the chart's own list; null where the model sees no code (an empty cell) or could not
+ * read one.
+ */
+export async function readCellsWithAi(img: HTMLImageElement, rec: Recognition, cells: number[], codes: string[], settings: AiSettings): Promise<Map<number, string | null>> {
+  const out = new Map<number, string | null>()
+  const allowed = new Set(codes)
+  for (let start = 0; start < cells.length; start += CELLS_PER_REQUEST) {
+    const batch = cells.slice(start, start + CELLS_PER_REQUEST)
+    const prompt = [
+      `这是一张拼豆图纸上裁下来的 ${batch.length} 个格子，每格上方有红色编号。每个格子中间印着这一格的拼豆色号，有的被半透明水印或线条挡住一部分。`,
+      `这张图纸只用到这些色号：${codes.join('、')}。`,
+      '请读出每个格子里印的色号，只能从上面的色号里选；格子里没有印色号（空白格）或实在认不出就填 null。只输出 JSON，不要其他文字：',
+      '{"1": "H5", "2": "C24", "3": null}',
+    ].join('\n')
+    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${settings.key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: settings.model,
+        temperature: 0,
+        messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: cellSheet(img, rec, batch) } }] }],
+      }),
+    })
+    if (!res.ok) throw new Error(`AI 请求失败（${res.status}）：${(await res.text()).slice(0, 200)}`)
+    const text: string = (await res.json())?.choices?.[0]?.message?.content ?? ''
+    const json = /\{[\s\S]*\}/.exec(text)?.[0]
+    if (!json) throw new Error('AI 没有返回可解析的结果')
+    const parsed = JSON.parse(json) as Record<string, unknown>
+    batch.forEach((cell, k) => {
+      const v = parsed[String(k + 1)]
+      const m = typeof v === 'string' ? /^([A-Za-z]+)0*(\d+)$/.exec(v.trim()) : null
+      const code = m ? m[1].toUpperCase() + m[2] : null
+      out.set(cell, code && allowed.has(code) ? code : null)
+    })
+  }
+  return out
 }
