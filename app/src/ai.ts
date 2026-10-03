@@ -1,10 +1,9 @@
-// Optional: let a vision model read the colour codes.
-// The model is never asked to count cells. It gets one small sheet with each colour group's
-// stacked label (a few dozen clear, numbered tiles) plus the chart's legend, and reads them.
-import { paintLabel } from './browser'
+// Optional: let a vision model read the legend when the local reading is unsure.
+// The model only reads what is printed (codes and counts); it never sees the board or counts cells.
+// Matching its list to the board's colours is done locally (engine/legendRead.ts fitList).
 import { CATALOGUE } from './engine/glyphs'
 import type { Rect } from './engine/legendArea'
-import type { Recognition } from './engine/recognize'
+import type { LegendEntry } from './engine/legendRead'
 
 export interface AiSettings {
   key: string
@@ -29,86 +28,49 @@ export function saveAiSettings(s: AiSettings) {
   }
 }
 
-const TILE = 120
-
-function labelSheet(rec: Recognition): string {
-  const perRow = 8
-  const rows = Math.ceil(rec.groups.length / perRow)
-  const sheet = document.createElement('canvas')
-  sheet.width = perRow * (TILE + 24) + 24
-  sheet.height = rows * (TILE + 56) + 24
-  const ctx = sheet.getContext('2d')!
-  ctx.fillStyle = '#fff'
-  ctx.fillRect(0, 0, sheet.width, sheet.height)
-  const tile = document.createElement('canvas')
-  rec.groups.forEach((g, i) => {
-    const x = 24 + (i % perRow) * (TILE + 24)
-    const y = 24 + Math.floor(i / perRow) * (TILE + 56)
-    paintLabel(tile, g.label, TILE)
-    ctx.drawImage(tile, x, y)
-    ctx.strokeStyle = '#999'
-    ctx.strokeRect(x - 0.5, y - 0.5, TILE + 1, TILE + 1)
-    ctx.fillStyle = '#c00'
-    ctx.font = 'bold 22px sans-serif'
-    ctx.fillText(`#${i + 1}`, x, y + TILE + 26)
-  })
-  return sheet.toDataURL('image/png')
-}
-
-function legendCrop(img: HTMLImageElement, rect: Rect | null): string | null {
-  if (!rect || rect.h < 8 || rect.w < 8) return null
-  const scale = Math.min(3, 2400 / rect.w)
+function legendCrop(img: HTMLImageElement, rect: Rect): string {
+  // enough pixels for small print, within what vision models accept
+  const scale = Math.min(3, 2400 / rect.w, 2400 / rect.h)
   const c = document.createElement('canvas')
-  c.width = Math.round(rect.w * scale)
-  c.height = Math.round(rect.h * scale)
+  c.width = Math.max(1, Math.round(rect.w * scale))
+  c.height = Math.max(1, Math.round(rect.h * scale))
   const ctx = c.getContext('2d')!
   ctx.imageSmoothingQuality = 'high'
   ctx.drawImage(img, rect.x, rect.y, rect.w, rect.h, 0, 0, c.width, c.height)
-  return c.toDataURL('image/png')
+  return c.toDataURL('image/jpeg', 0.92)
 }
 
-export interface AiReading {
-  /** code per group, or null where the model gave nothing usable */
-  codes: (string | null)[]
-  /** code -> count as printed in the legend, where the model could read it */
-  legend: Record<string, number>
-}
+const PROMPT = [
+  '这是一张拼豆图纸的图例（色卡）部分。图例里每一项是一个 MARD 色号（一个大写字母加数字，例如 A1、B30、H07、M15，少数是 ZG 加数字），通常还印着这个色号的颗数。',
+  '请按图例上的顺序（从上到下、从左到右）列出全部色号和颗数，只输出 JSON，不要任何其他文字：',
+  '{"legend": [{"code": "A1", "count": 3150}, {"code": "H2", "count": 1599}]}',
+  '读不清的颗数填 null；不是色号的文字（标题、作者、水印、总数）不要列出。',
+].join('\n')
 
-export async function readCodesWithAi(img: HTMLImageElement, rec: Recognition, legendRect: Rect | null, settings: AiSettings): Promise<AiReading> {
-  const legend = legendCrop(img, legendRect)
-  const prompt = [
-    `第一张图是 ${rec.groups.length} 个编号小图（#1 到 #${rec.groups.length}），每个小图里是一个拼豆色号，格式是一个大写字母加一到两位数字（例如 A1、B30、F13、H7、M3），少数是 ZG 加数字。字有些模糊。`,
-    legend ? '第二张图是同一张图纸的图例，上面印着这张图纸用到的全部色号和每个色号的颗数。小图里的色号一定出现在图例里，请用图例来确定模糊的字。' : '',
-    '请只输出 JSON，不要任何其他文字，格式：',
-    '{"labels": {"1": "A1", "2": "B30"}, "legend": {"A1": 3150, "B30": 345}}',
-    'labels 的键是小图编号；实在看不清的填 null。legend 是图例上读到的 色号: 颗数；没有图例或读不清就给空对象。',
-  ]
-    .filter(Boolean)
-    .join('\n')
-  const content: unknown[] = [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: labelSheet(rec) } }]
-  if (legend) content.push({ type: 'image_url', image_url: { url: legend } })
-
+/** Codes and counts as printed in the legend, in printed order. Only the legend crop is sent. */
+export async function readLegendWithAi(img: HTMLImageElement, rect: Rect, settings: AiSettings): Promise<LegendEntry[]> {
   const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: { Authorization: `Bearer ${settings.key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: settings.model, temperature: 0, messages: [{ role: 'user', content }] }),
+    body: JSON.stringify({
+      model: settings.model,
+      temperature: 0,
+      messages: [{ role: 'user', content: [{ type: 'text', text: PROMPT }, { type: 'image_url', image_url: { url: legendCrop(img, rect) } }] }],
+    }),
   })
-  if (!res.ok) throw new Error(`请求失败（${res.status}）：${(await res.text()).slice(0, 200)}`)
+  if (!res.ok) throw new Error(`AI 请求失败（${res.status}）：${(await res.text()).slice(0, 200)}`)
   const text: string = (await res.json())?.choices?.[0]?.message?.content ?? ''
   const json = /\{[\s\S]*\}/.exec(text)?.[0]
-  if (!json) throw new Error('模型没有返回可解析的结果')
-  const parsed = JSON.parse(json) as { labels?: Record<string, unknown>; legend?: Record<string, unknown> }
-
-  const clean = (v: unknown) => {
-    if (typeof v !== 'string') return null
-    const m = /^([A-Za-z]+)0*(\d+)$/.exec(v.trim())
-    const code = m ? m[1].toUpperCase() + m[2] : v.trim().toUpperCase()
-    return code in CATALOGUE ? code : null
+  if (!json) throw new Error('AI 没有返回可解析的结果')
+  const parsed = JSON.parse(json) as { legend?: { code?: unknown; count?: unknown }[] }
+  const out: LegendEntry[] = []
+  for (const e of parsed.legend ?? []) {
+    if (typeof e?.code !== 'string') continue
+    const m = /^([A-Za-z]+)0*(\d+)$/.exec(e.code.trim())
+    const code = m ? m[1].toUpperCase() + m[2] : ''
+    if (!(code in CATALOGUE) || out.some((o) => o.code === code)) continue
+    out.push({ code, count: typeof e.count === 'number' && Number.isFinite(e.count) ? Math.round(e.count) : undefined })
   }
-  const out: AiReading = { codes: rec.groups.map((_, i) => clean(parsed.labels?.[String(i + 1)])), legend: {} }
-  for (const [k, v] of Object.entries(parsed.legend ?? {})) {
-    const code = clean(k)
-    if (code && typeof v === 'number' && Number.isFinite(v)) out.legend[code] = v
-  }
+  if (!out.length) throw new Error('AI 没有在图例里读到色号')
   return out
 }

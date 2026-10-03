@@ -57,3 +57,20 @@ export function findLegend(img: Raster, rec: Recognition): Rect | null {
   y1 = Math.min(H, y1 + 4)
   return { x: 0, y: y0, w: W, h: y1 - y0 }
 }
+
+/** Fallback legend region: the largest margin outside the board (below, above, right, left). */
+export function outsideBoard(rec: Recognition, W: number, H: number): Rect | null {
+  const { grid, cells } = rec
+  const top = Math.max(0, Math.floor(grid.offY + cells.r0 * grid.perY))
+  const bottom = Math.min(H, Math.ceil(grid.offY + (cells.r0 + cells.rows) * grid.perY))
+  const left = Math.max(0, Math.floor(grid.offX + cells.c0 * grid.perX))
+  const right = Math.min(W, Math.ceil(grid.offX + (cells.c0 + cells.cols) * grid.perX))
+  const sides: Rect[] = [
+    { x: 0, y: bottom, w: W, h: H - bottom },
+    { x: 0, y: 0, w: W, h: top },
+    { x: right, y: 0, w: W - right, h: H },
+    { x: 0, y: 0, w: left, h: H },
+  ]
+  const best = sides.sort((a, b) => b.w * b.h - a.w * a.h)[0]
+  return best.w > 8 && best.h > 8 ? best : null
+}

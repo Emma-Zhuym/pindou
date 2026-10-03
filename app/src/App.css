@@ -580,6 +580,48 @@ img.boardview {
   text-align: center;
 }
 
+.boardcheck {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.boardcheck > .row:first-child {
+  justify-content: space-between;
+}
+.boardcanvas {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 70vh;
+  margin: 0 auto;
+  border-radius: 14px;
+}
+.edgesteps {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.edgestep {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--fill);
+}
+.edgestep .link {
+  min-width: 32px;
+  font-size: 20px;
+  line-height: 1;
+}
+@media (max-width: 480px) {
+  .edgesteps {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
 /* ---------------------------------------------------------------- codes */
 
 .legendpanel {

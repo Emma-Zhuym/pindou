@@ -7,7 +7,7 @@ export const STATUS_LABEL: Record<Status, string> = { todo: '未拼', doing: '�
 
 /** Bumped whenever the recogniser changes how it groups cells: an editing state saved by an older
  *  recogniser cannot be laid back onto a fresh run, and the per-cell codes are used instead. */
-export const ENGINE_VERSION = 1
+export const ENGINE_VERSION = 2
 
 export interface Chart {
   id: string

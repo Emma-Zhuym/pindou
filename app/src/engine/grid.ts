@@ -259,7 +259,7 @@ export function findBoard(img: Raster, grid: Grid): Extent {
       }
       sig[a] = percentile(tmp, 65) // a line at a good share of the positions?
     }
-    const thr = 0.3 * percentile(sig, 70)
+    const thr = Math.max(20, 0.25 * percentile(sig, 70))
     let best: [number, number] = [0, 0]
     let start = -1
     let gap = 0

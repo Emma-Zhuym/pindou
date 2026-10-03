@@ -1,8 +1,10 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { type AiSettings, loadAiSettings, readCodesWithAi } from '../ai'
+import { type AiSettings, loadAiSettings, readLegendWithAi } from '../ai'
 import { loadImage, paintLabel, renderText, toRaster } from '../browser'
 import { CATALOGUE } from '../engine/glyphs'
-import { findLegend, type Rect } from '../engine/legendArea'
+import type { Extent, Grid } from '../engine/grid'
+import { findLegend, outsideBoard, type Rect } from '../engine/legendArea'
+import { applyReading, fitList, needsHelp, type Reading, readLocally } from '../engine/legendRead'
 import { recognise, type Recognition } from '../engine/recognize'
 import { Icon } from '../Icon'
 import { boardThumb, codeOrder, css, GREY, ICONS } from '../shared'
@@ -30,6 +32,10 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
   const [file, setFile] = useState<Blob | null>(chart?.image ?? null)
   const [img, setImg] = useState<HTMLImageElement | null>(null)
   const [rec, setRec] = useState<Recognition | null>(null)
+  // before the legend reading replaced its groups, and the local reading: AI and board changes start from these
+  const [base, setBase] = useState<Recognition | null>(null)
+  const [local, setLocal] = useState<Reading | null>(null)
+  const [readNote, setReadNote] = useState('')
   const [names, setNamesState] = useState<string[]>([])
   const [assign, setAssignState] = useState<Int16Array>(new Int16Array(0))
   const [legend, setLegendState] = useState<Record<string, number>>({})
@@ -47,7 +53,7 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
   const setLegend = edited(setLegendState)
   const setLegendRect = edited(setLegendRectState)
 
-  async function open(src: Blob | string, saved?: Chart) {
+  async function open(src: Blob | string, saved?: Chart, board?: { grid: Grid; extent: Extent }) {
     setError('')
     setBusy(saved ? '正在打开…' : '正在识别…')
     try {
@@ -56,7 +62,28 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
       // let the "working" state paint before the main thread is busy
       await new Promise((r) => setTimeout(r, 30))
       const raster = toRaster(image)
-      const result = recognise(raster, renderText)
+      const first = recognise(raster, renderText, undefined, board)
+      // local first: swatches found and named on the chart itself
+      const localReading = readLocally(raster, first, renderText)
+      const rect = saved ? saved.legendRect : (findLegend(raster, first) ?? outsideBoard(first, raster.width, raster.height))
+      let reading = localReading
+      let printed: Record<string, number> = {}
+      let note = !localReading ? '没有在图上找到图例色块' : needsHelp(localReading) ? '本地读图例没把握' : '已按图例读出色号'
+      if (!saved && needsHelp(localReading)) {
+        const ai = loadAiSettings()
+        if (ai.key && ai.model && rect) {
+          setBusy('AI 正在读图例…')
+          try {
+            const list = await readLegendWithAi(image, rect, ai)
+            reading = fitList(first, list, localReading)
+            printed = Object.fromEntries(list.filter((e) => e.count !== undefined).map((e) => [e.code, e.count!]))
+            note = `AI 读出图例上 ${list.length} 个色号，已按颜色和颗数对到格子上`
+          } catch (e) {
+            note += `；AI 读取失败：${e instanceof Error ? e.message : String(e)}`
+          }
+        } else note += '。可以在「色号」页让 AI 读图例（需先在设置里填 Key），或手动核对'
+      }
+      const result = reading ? applyReading(first, reading) : first
       if (!result.groups.length && !saved) throw new Error('没有识别出带色号的格子，这张图可能不是带色号的图纸')
       let n = result.groups.map((g) => g.code)
       let a = Int16Array.from(result.assign)
@@ -79,17 +106,37 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
       }
       setFile(blob)
       setImg(image)
+      setBase(first)
+      setLocal(localReading)
       setRec(result)
+      setReadNote(saved ? '' : note)
       setNamesState(n)
       setAssignState(a)
-      setLegendState(saved?.legend ?? {})
-      setLegendRectState(saved ? saved.legendRect : findLegend(raster, result))
+      setLegendState(saved?.legend ?? printed)
+      setLegendRectState(rect)
       setDirty(!saved)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
       setBusy('')
     }
+  }
+
+  /** Ask the vision model to read the legend and lay its list onto the board; returns the new names. */
+  async function askAi(): Promise<string[]> {
+    if (!img || !base) return names
+    const ai = loadAiSettings()
+    const rect = legendRect ?? outsideBoard(base, img.naturalWidth, img.naturalHeight)
+    if (!rect) throw new Error('先框选图例')
+    const list = await readLegendWithAi(img, rect, ai)
+    const r = applyReading(base, fitList(base, list, local))
+    const next = r.groups.map((g) => g.code)
+    setRec(r)
+    setNames(next)
+    setAssign(Int16Array.from(r.assign))
+    setLegend({ ...legend, ...Object.fromEntries(list.filter((e) => e.count !== undefined).map((e) => [e.code, e.count!])) })
+    setReadNote(`AI 读出图例上 ${list.length} 个色号，已按颜色和颗数对到格子上`)
+    return next
   }
 
   useEffect(() => {
@@ -164,9 +211,22 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
       </div>
       {error && step !== 'import' && <p className="error page-error">{error}</p>}
       <main>
-        {step === 'import' && <ImportPage img={img} rec={rec} names={names} assign={assign} busy={busy} error={error} onOpen={(f) => open(f)} onNext={() => setStep('codes')} />}
+        {step === 'import' && (
+          <ImportPage
+            img={img}
+            rec={rec}
+            names={names}
+            assign={assign}
+            busy={busy}
+            error={error}
+            note={readNote}
+            onOpen={(f) => open(f)}
+            onBoard={(extent) => rec && file && open(file, undefined, { grid: rec.grid, extent })}
+            onNext={() => setStep('codes')}
+          />
+        )}
         {step === 'codes' && img && rec && (
-          <CodesPage img={img} rec={rec} names={names} counts={counts} legend={legend} legendRect={legendRect} onNames={setNames} onLegend={setLegend} onLegendRect={setLegendRect} onNext={() => setStep('wall')} />
+          <CodesPage img={img} rec={rec} names={names} counts={counts} legend={legend} legendRect={legendRect} onNames={setNames} onLegend={setLegend} onLegendRect={setLegendRect} onAskAi={askAi} onNext={() => setStep('wall')} />
         )}
         {step === 'wall' && img && rec && <WallPage img={img} rec={rec} names={names} assign={assign} counts={counts} legend={legend} onAssign={setAssign} onNames={setNames} />}
         {step === 'list' && img && rec && <ListPage counts={counts} legend={legend} onSave={() => setAsking(true)} />}
@@ -254,10 +314,12 @@ function ImportPage(props: {
   assign: Int16Array
   busy: string
   error: string
+  note: string
   onOpen: (src: Blob | string) => void
+  onBoard: (extent: Extent) => void
   onNext: () => void
 }) {
-  const { img, rec, names, assign, busy, error, onOpen, onNext } = props
+  const { img, rec, names, assign, busy, error, note, onOpen, onBoard, onNext } = props
   const board = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
@@ -334,6 +396,8 @@ function ImportPage(props: {
               <span>格待确认</span>
             </div>
           </section>
+          {note && <p className="hint">{note}</p>}
+          <BoardCheck key={`${rec.cells.r0},${rec.cells.c0},${rec.cells.rows},${rec.cells.cols}`} img={img} rec={rec} busy={!!busy} onApply={onBoard} />
           <section className="card compare">
             <figure>
               <img src={img.src} alt="原图" />
@@ -350,6 +414,87 @@ function ImportPage(props: {
         </>
       )}
     </div>
+  )
+}
+
+/** The board the recogniser settled on, drawn over the image, with each edge movable by whole cells. */
+function BoardCheck({ img, rec, busy, onApply }: { img: HTMLImageElement; rec: Recognition; busy: boolean; onApply: (e: Extent) => void }) {
+  const found = { r0: rec.cells.r0, c0: rec.cells.c0, rows: rec.cells.rows, cols: rec.cells.cols }
+  const [ext, setExt] = useState(found)
+  const ref = useRef<HTMLCanvasElement>(null)
+  const { grid } = rec
+  useEffect(() => {
+    const c = ref.current
+    if (!c) return
+    const scale = Math.min(1, 900 / img.naturalWidth)
+    c.width = Math.round(img.naturalWidth * scale)
+    c.height = Math.round(img.naturalHeight * scale)
+    const ctx = c.getContext('2d')!
+    ctx.imageSmoothingQuality = 'high'
+    ctx.drawImage(img, 0, 0, c.width, c.height)
+    const x = (grid.offX + ext.c0 * grid.perX) * scale
+    const y = (grid.offY + ext.r0 * grid.perY) * scale
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.35)'
+    ctx.fillRect(0, 0, c.width, y)
+    ctx.fillRect(0, y + ext.rows * grid.perY * scale, c.width, c.height)
+    ctx.fillRect(0, y, x, ext.rows * grid.perY * scale)
+    ctx.fillRect(x + ext.cols * grid.perX * scale, y, c.width, ext.rows * grid.perY * scale)
+    ctx.strokeStyle = '#007aff'
+    ctx.lineWidth = 3
+    ctx.strokeRect(x, y, ext.cols * grid.perX * scale, ext.rows * grid.perY * scale)
+  }, [img, grid, ext])
+  const changed = ext.r0 !== found.r0 || ext.c0 !== found.c0 || ext.rows !== found.rows || ext.cols !== found.cols
+  // moving an edge by one cell: top/left move the origin, bottom/right only the size
+  const edge = (side: 'top' | 'bottom' | 'left' | 'right', d: number) => {
+    const e = { ...ext }
+    if (side === 'top') {
+      e.r0 -= d
+      e.rows += d
+    } else if (side === 'bottom') e.rows += d
+    else if (side === 'left') {
+      e.c0 -= d
+      e.cols += d
+    } else e.cols += d
+    if (e.rows >= 2 && e.cols >= 2) setExt(e)
+  }
+  const stepper = (side: 'top' | 'bottom' | 'left' | 'right', label: string) => (
+    <div className="edgestep">
+      <span className="sub">{label}</span>
+      <button className="link" aria-label={`${label}收一格`} onClick={() => edge(side, -1)}>
+        −
+      </button>
+      <button className="link" aria-label={`${label}扩一格`} onClick={() => edge(side, 1)}>
+        +
+      </button>
+    </div>
+  )
+  return (
+    <section className="card boardcheck">
+      <div className="row">
+        <b>图纸范围</b>
+        <span className="sub">
+          {ext.cols} 列 × {ext.rows} 行
+        </span>
+      </div>
+      <canvas ref={ref} className="boardcanvas" />
+      <p className="hint">蓝框是程序找到的图纸范围。和图纸上印的行列号对一下，不对就逐格调整边缘。</p>
+      <div className="edgesteps">
+        {stepper('top', '上边')}
+        {stepper('bottom', '下边')}
+        {stepper('left', '左边')}
+        {stepper('right', '右边')}
+      </div>
+      {changed && (
+        <div className="row end">
+          <button className="link" onClick={() => setExt(found)}>
+            还原
+          </button>
+          <button className="primary small" disabled={busy} onClick={() => onApply(ext)}>
+            按这个范围重新识别
+          </button>
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -373,9 +518,10 @@ function CodesPage(props: {
   onNames: (n: string[]) => void
   onLegend: (l: Record<string, number>) => void
   onLegendRect: (r: Rect | null) => void
+  onAskAi: () => Promise<string[]>
   onNext: () => void
 }) {
-  const { img, rec, names, counts, legend, legendRect, onNames, onLegend, onLegendRect, onNext } = props
+  const { img, rec, names, counts, legend, legendRect, onNames, onLegend, onLegendRect, onAskAi, onNext } = props
   const [cropping, setCropping] = useState(false)
   const [ai] = useState<AiSettings>(loadAiSettings)
   const [busy, setBusy] = useState(false)
@@ -472,19 +618,9 @@ function CodesPage(props: {
     setBusy(true)
     setNote('')
     try {
-      const reading = await readCodesWithAi(img, rec, legendRect, ai)
-      let changed = 0
-      const next = names.map((n, i) => {
-        const c = reading.codes[i]
-        if (c && c !== n) changed++
-        return c ?? n
-      })
-      onNames(next)
+      const next = await onAskAi()
       setOrder(sortedBy(sort, next))
-      onLegend({ ...legend, ...reading.legend })
-      const missed = reading.codes.filter((c) => !c).length
-      const read = Object.keys(reading.legend).length
-      setNote(`AI 改了 ${changed} 个色号${missed ? `，有 ${missed} 个没读出来（保留原判断）` : ''}${read ? `，并读到图例上 ${read} 个色号的颗数` : ''}`)
+      setNote('AI 已重新读了图例，下面的色号和图例颗数都按它更新了')
     } catch (e) {
       setNote(e instanceof Error ? e.message : String(e))
     } finally {
@@ -515,18 +651,18 @@ function CodesPage(props: {
       )}
       <section className="card ai">
         <button className="link" onClick={() => setShowAi(!showAi)}>
-          {showAi ? '收起' : '让 AI 读色号和颗数（可选）'}
+          {showAi ? '收起' : '让 AI 读图例（可选）'}
         </button>
         {showAi &&
           (ai.key && ai.model ? (
             <div className="aiform">
               <button className="primary small" disabled={busy} onClick={askAi}>
-                {busy ? '读取中…' : '读色号'}
+                {busy ? '读取中…' : '读图例'}
               </button>
-              <p className="hint">只发送色号小图和上面这块图例，不发整张图纸。</p>
+              <p className="hint">只发送上面这块图例截图，不发整张图纸。AI 只负责读出色号和颗数，对到格子上是本机算的。</p>
             </div>
           ) : (
-            <p className="hint">先到「设置」里填好 OpenRouter Key 和模型，这里就能一键让 AI 读色号。</p>
+            <p className="hint">先到「设置」里填好 OpenRouter Key 和模型，这里就能一键让 AI 读图例。</p>
           ))}
         {note && <p className="hint">{note}</p>}
       </section>

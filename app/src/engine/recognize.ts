@@ -32,12 +32,14 @@ export interface Recognition {
 const rgbOf = (centre: Float64Array, k: number): Rgb => ({ r: centre[k * 3], g: centre[k * 3 + 1], b: centre[k * 3 + 2] })
 const colourDist = (a: Rgb, b: Rgb) => Math.abs(a.r - b.r) + Math.abs(a.g - b.g) + Math.abs(a.b - b.b)
 
-export function recognise(img: Raster, render: TextRenderer, onProgress?: (step: string) => void): Recognition {
+/** `board`: a grid and board the person confirmed; skips finding them (and the border strip). */
+export function recognise(img: Raster, render: TextRenderer, onProgress?: (step: string) => void, board?: { grid: Grid; extent: Extent }): Recognition {
   onProgress?.('grid')
-  const grid = findGrid(img)
-  const extent = findBoard(img, grid)
+  const grid = board?.grid ?? findGrid(img)
+  const extent = board?.extent ?? findBoard(img, grid)
   onProgress?.('cells')
-  const cells = stripBorder(readCells(img, grid, extent))
+  const read = readCells(img, grid, extent)
+  const cells = board ? read : stripBorder(read)
   const n = cells.rows * cells.cols
 
   onProgress?.('colours')

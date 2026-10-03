@@ -12,6 +12,7 @@ import type { TextRenderer } from '../src/engine/glyphs'
 import { findLegend } from '../src/engine/legendArea'
 import { nameSwatches } from '../src/engine/legendNames'
 import { findLegendSwatches } from '../src/engine/legendSwatches'
+import { findSwatchesByColour } from '../src/engine/legendPatches'
 import { recognise } from '../src/engine/recognize'
 
 const SS = 4
@@ -71,7 +72,7 @@ for (const [key, chart] of Object.entries(CHARTS)) {
     const img = load(file)
     const rec = recognise(img, render)
     const area = findLegend(img, rec)
-    const swatches = area ? findLegendSwatches(img, area, rec.grid.perX) : []
+    const swatches = process.env.FINDER === 'colour' ? findSwatchesByColour(img, rec) : area ? findLegendSwatches(img, area, rec.grid.perX) : []
     const t = Date.now()
     const { names, ordered, swatchOf } = nameSwatches(img, rec, swatches, render)
     const ms = Date.now() - t
