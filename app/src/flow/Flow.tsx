@@ -741,11 +741,17 @@ function CodesPage(props: {
   // does not jump away while its code is being typed.
   // a colour the recogniser missed sorts by the count typed for it
   const size = (code: string) => counts.get(code) || legend[code] || 0
+  // rows whose count disagrees with the legend first, whichever order is chosen
+  const disagrees = (code: string) => (legend[code] !== undefined && (counts.get(code) ?? 0) !== legend[code] ? 1 : 0)
   const sortedBy = (mode: 'count' | 'code', list: string[]) =>
     list
       .map((_, i) => i)
       .filter((i) => list[i])
-      .sort((x, y) => (mode === 'code' ? codeOrder(list[x], list[y]) : size(list[y]) - size(list[x]) || codeOrder(list[x], list[y])))
+      .sort(
+        (x, y) =>
+          disagrees(list[y]) - disagrees(list[x]) ||
+          (mode === 'code' ? codeOrder(list[x], list[y]) : size(list[y]) - size(list[x]) || codeOrder(list[x], list[y])),
+      )
   const [order, setOrder] = useState(() => sortedBy(sort, names))
   const resort = () => setOrder(sortedBy(sort, names))
   const changeSort = (mode: 'count' | 'code') => {
@@ -1161,6 +1167,10 @@ function WallPage(props: {
     for (const list of m.values()) list.sort((a, b) => rec.unsure[b] - rec.unsure[a] || rec.confidence[a] - rec.confidence[b])
     return [...m].sort((a, b) => codeOrder(a[0], b[0]))
   }, [assign, names, rec])
+  // codes whose count disagrees with the printed legend come first: that is where mistakes are
+  const off = (code: string) => (legend[code] === undefined ? 0 : (counts.get(code) ?? 0) - legend[code])
+  const mismatched = byCode.filter(([c]) => off(c) !== 0)
+  const matched = byCode.filter(([c]) => off(c) === 0)
 
   // Cells judged empty, so a code hidden by a watermark can be spotted: cells with print in them
   // first, then those with beads on most sides, plain background last.
@@ -1197,6 +1207,51 @@ function WallPage(props: {
     setPicking(false)
     setCustom('')
   }
+  const jump = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  const blankWall = () => {
+        const shownBlanks = onlyUnsure ? blanks.filter((c) => rec.cells.share[c] > 0.06) : blanks
+        if (!shownBlanks.length) return null
+        const open = expanded.has('')
+        return (
+          <section id="wall-blank" className="card wall">
+            <header>
+              <span className="swatch blank" />
+              <b>空格</b>
+              <span className="sub">{blanks.length} 格，格子里有印字的排在最前；有色号的点一下改掉</span>
+            </header>
+            <Tiles img={img} rec={rec} cells={open ? shownBlanks : shownBlanks.slice(0, BLANK_LIMIT)} selected={selected} onPick={toggle} />
+            {shownBlanks.length > BLANK_LIMIT && (
+              <button className="link" onClick={() => setExpanded(new Set(open ? [...expanded].filter((c) => c !== '') : [...expanded, '']))}>
+                {open ? '收起' : `显示全部 ${shownBlanks.length} 格`}
+              </button>
+            )}
+          </section>
+        )
+        }
+  const wall = ([code, all]: [string, number[]]) => {
+        const cells = onlyUnsure ? all.filter((c) => rec.unsure[c]) : all
+        if (!cells.length) return null
+        const open = expanded.has(code)
+        const shown = open ? cells : cells.slice(0, LIMIT)
+        const want = legend[code]
+        return (
+          <section key={code} id={`wall-${code}`} className="card wall">
+            <header>
+              <span className="swatch" style={{ background: css(CATALOGUE[code] ?? GREY) }} />
+              <b>{code}</b>
+              <span className="sub">
+                {counts.get(code)} 颗{want !== undefined && (want === counts.get(code) ? '，与图例一致' : `，图例 ${want}`)}
+              </span>
+            </header>
+            <Tiles img={img} rec={rec} cells={shown} selected={selected} onPick={toggle} />
+            {cells.length > LIMIT && (
+              <button className="link" onClick={() => setExpanded(new Set(open ? [...expanded].filter((c) => c !== code) : [...expanded, code]))}>
+                {open ? '收起' : `显示全部 ${cells.length} 格`}
+              </button>
+            )}
+          </section>
+        )
+  }
   const first = selected.size ? [...selected][0] : null
   const customCode = custom.toUpperCase().trim()
 
@@ -1228,50 +1283,30 @@ function WallPage(props: {
           {checkNote && <span className="sub">{checkNote}</span>}
         </div>
       )}
-      {blanks.length > 0 && (() => {
-        const shownBlanks = onlyUnsure ? blanks.filter((c) => rec.cells.share[c] > 0.06) : blanks
-        if (!shownBlanks.length) return null
-        const open = expanded.has('')
-        return (
-          <section className="card wall">
-            <header>
-              <span className="swatch blank" />
-              <b>空格</b>
-              <span className="sub">{blanks.length} 格，格子里有印字的排在最前；有色号的点一下改掉</span>
-            </header>
-            <Tiles img={img} rec={rec} cells={open ? shownBlanks : shownBlanks.slice(0, BLANK_LIMIT)} selected={selected} onPick={toggle} />
-            {shownBlanks.length > BLANK_LIMIT && (
-              <button className="link" onClick={() => setExpanded(new Set(open ? [...expanded].filter((c) => c !== '') : [...expanded, '']))}>
-                {open ? '收起' : `显示全部 ${shownBlanks.length} 格`}
-              </button>
-            )}
-          </section>
-        )
-      })()}
-      {byCode.map(([code, all]) => {
-        const cells = onlyUnsure ? all.filter((c) => rec.unsure[c]) : all
-        if (!cells.length) return null
-        const open = expanded.has(code)
-        const shown = open ? cells : cells.slice(0, LIMIT)
-        const want = legend[code]
-        return (
-          <section key={code} className="card wall">
-            <header>
-              <span className="swatch" style={{ background: css(CATALOGUE[code] ?? GREY) }} />
-              <b>{code}</b>
-              <span className="sub">
-                {counts.get(code)} 颗{want !== undefined && (want === counts.get(code) ? '，与图例一致' : `，图例 ${want}`)}
-              </span>
-            </header>
-            <Tiles img={img} rec={rec} cells={shown} selected={selected} onPick={toggle} />
-            {cells.length > LIMIT && (
-              <button className="link" onClick={() => setExpanded(new Set(open ? [...expanded].filter((c) => c !== code) : [...expanded, code]))}>
-                {open ? '收起' : `显示全部 ${cells.length} 格`}
-              </button>
-            )}
-          </section>
-        )
-      })}
+      <nav className="codeindex" aria-label="色号目录">
+        {mismatched.map(([c]) => (
+          <button key={c} className="chip off" onClick={() => jump(`wall-${c}`)}>
+            <span className="swatch" style={{ background: css(CATALOGUE[c] ?? GREY) }} />
+            {c}
+            <span className="diff off">{off(c) > 0 ? `多${off(c)}` : `少${-off(c)}`}</span>
+          </button>
+        ))}
+        {blanks.length > 0 && (
+          <button className="chip" onClick={() => jump('wall-blank')}>
+            <span className="swatch blank" />
+            空格
+          </button>
+        )}
+        {matched.map(([c]) => (
+          <button key={c} className="chip" onClick={() => jump(`wall-${c}`)}>
+            <span className="swatch" style={{ background: css(CATALOGUE[c] ?? GREY) }} />
+            {c}
+          </button>
+        ))}
+      </nav>
+      {mismatched.map(wall)}
+      {blankWall()}
+      {matched.map(wall)}
       {selected.size > 0 && !picking && (
         <div className="actionbar">
           <span>已选 {selected.size} 格</span>

@@ -432,6 +432,43 @@ h2 {
   font-size: 14px;
   cursor: pointer;
 }
+/* review page: every code in one sticky row, tap to jump to its wall */
+.codeindex {
+  position: sticky;
+  top: calc(64px + env(safe-area-inset-top));
+  z-index: 4;
+  display: flex;
+  gap: 6px;
+  margin: 0 -16px;
+  padding: 8px 16px;
+  overflow-x: auto;
+  background: var(--glass);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  scrollbar-width: none;
+}
+.codeindex .chip {
+  flex: none;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 12px 0 8px;
+  color: inherit;
+  font-weight: 600;
+}
+.codeindex .chip .swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+}
+.codeindex .chip.off {
+  box-shadow: inset 0 0 0 1.5px var(--orange);
+}
+.codeindex .diff {
+  min-width: 0;
+}
+.flow .wall {
+  scroll-margin-top: calc(120px + env(safe-area-inset-top));
+}
 .chip.on {
   background: color-mix(in srgb, var(--accent) 16%, transparent);
   color: var(--accent);
