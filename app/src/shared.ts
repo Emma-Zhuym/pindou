@@ -1,4 +1,5 @@
 // Small pieces shared by the library and the recognition flow.
+import { useEffect, useState } from 'react'
 import { CATALOGUE, type Rgb } from './engine/glyphs'
 
 export const GREY: Rgb = { r: 200, g: 200, b: 200 }
@@ -76,4 +77,16 @@ export async function copyText(text: string): Promise<boolean> {
   const ok = document.execCommand('copy')
   area.remove()
   return ok
+}
+
+/** A blob shown as an <img>, with its object URL released when no longer needed. */
+export function useBlobUrl(blob: Blob | undefined) {
+  // made and released by the same effect, so a re-run (as in development) never leaves a released URL
+  const [url, setUrl] = useState('')
+  useEffect(() => {
+    const u = blob ? URL.createObjectURL(blob) : ''
+    setUrl(u) // oxlint-disable-line react/set-state-in-effect -- the URL is the external thing being kept in step
+    return () => void (u && URL.revokeObjectURL(u))
+  }, [blob])
+  return url
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import './App.css'
 import { type AiSettings, listVisionModels, loadAiSettings, type ModelInfo, saveAiSettings } from './ai'
 import { BeadMode } from './bead/BeadMode'
@@ -9,7 +9,7 @@ import { StockPage } from './stock/StockPage'
 import { Usage } from './stock/Usage'
 import { Flow } from './flow/Flow'
 import { Icon } from './Icon'
-import { codeColour, codeOrder, drawBoard, ICONS } from './shared'
+import { codeColour, codeOrder, drawBoard, ICONS, useBlobUrl } from './shared'
 import { type Chart, deleteChart, exportBackup, getStock, importBackup, listCharts, persist, putChart, type Status, STATUS_LABEL, type Stock } from './store'
 
 type Tab = 'charts' | 'stock' | 'stats' | 'settings'
@@ -19,13 +19,6 @@ const TABS: [Tab, string][] = [
   ['stats', '统计'],
   ['settings', '设置'],
 ]
-
-/** A blob shown as an <img>, with its object URL released when no longer needed. */
-function useBlobUrl(blob: Blob | undefined) {
-  const url = useMemo(() => (blob ? URL.createObjectURL(blob) : ''), [blob])
-  useEffect(() => () => void (url && URL.revokeObjectURL(url)), [url])
-  return url
-}
 
 export default function App() {
   const [tab, setTabState] = useState<Tab>('charts')
@@ -144,21 +137,16 @@ export default function App() {
               }}
             />
           ) : (
-            <Library
-              charts={charts}
-              error={loadError}
-              onOpen={(id) => setOpenId(id)}
-              onNew={() => setFlow({})}
-              onUsage={(ids) => {
-                setUsage(ids)
-                window.scrollTo(0, 0)
-              }}
-            />
+<Library charts={charts} error={loadError} onOpen={(id) => setOpenId(id)} onNew={() => setFlow({})} />
           ))}
         {tab === 'stock' && <StockPage />}
         {tab === 'stats' && (
           <StatsPage
             charts={charts}
+            onUsage={(ids) => {
+              setUsage(ids)
+              window.scrollTo(0, 0)
+            }}
             onOpen={(id) => {
               setTabState('charts')
               setOpenId(id)
@@ -189,11 +177,8 @@ export default function App() {
 
 type Filter = 'all' | Status
 
-function Library(props: { charts: Chart[] | null; error: string; onOpen: (id: string) => void; onNew: () => void; onUsage: (ids: string[]) => void }) {
-  const { charts, error, onOpen, onNew, onUsage } = props
+function Library({ charts, error, onOpen, onNew }: { charts: Chart[] | null; error: string; onOpen: (id: string) => void; onNew: () => void }) {
   const [filter, setFilter] = useState<Filter>('all')
-  // choosing charts for 用量统计
-  const [picked, setPicked] = useState<Set<string> | null>(null)
   const [tag, setTag] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const all = charts ?? []
@@ -208,28 +193,7 @@ function Library(props: { charts: Chart[] | null; error: string; onOpen: (id: st
       <header className="title flat">
         <h1>图纸</h1>
         <span className="sub">{all.length} 张</span>
-        {all.length > 0 && !picked && (
-          <button className="small glass" onClick={() => setPicked(new Set())}>
-            用量统计
-          </button>
-        )}
       </header>
-      {picked && (
-        <div className="pickbar glass">
-          <span>
-            选要统计的图纸 · 已选 <b>{picked.size}</b>
-          </span>
-          <button className="link" onClick={() => setPicked(new Set(shown.map((c) => c.id)))}>
-            全选
-          </button>
-          <button className="link" onClick={() => setPicked(null)}>
-            取消
-          </button>
-          <button className="primary small" disabled={!picked.size} onClick={() => onUsage([...picked])}>
-            统计
-          </button>
-        </div>
-      )}
       {error && <p className="error">{error}</p>}
       {all.length > 0 && (
         <>
@@ -267,29 +231,17 @@ function Library(props: { charts: Chart[] | null; error: string; onOpen: (id: st
       {all.length > 0 && shown.length === 0 && <p className="hint">没有符合条件的图纸。</p>}
       <div className="grid">
         {shown.map((c) => (
-          <ChartCard
-            key={c.id}
-            chart={c}
-            picked={picked?.has(c.id)}
-            onOpen={() => {
-              if (!picked) return onOpen(c.id)
-              const next = new Set(picked)
-              if (next.has(c.id)) next.delete(c.id)
-              else next.add(c.id)
-              setPicked(next)
-            }}
-          />
+          <ChartCard key={c.id} chart={c} onOpen={() => onOpen(c.id)} />
         ))}
       </div>
     </div>
   )
 }
 
-function ChartCard({ chart, picked, onOpen }: { chart: Chart; picked?: boolean; onOpen: () => void }) {
+function ChartCard({ chart, onOpen }: { chart: Chart; onOpen: () => void }) {
   const thumb = useBlobUrl(chart.thumb)
   return (
-    <button className={picked === undefined ? 'chartcard' : `chartcard picking${picked ? ' on' : ''}`} aria-pressed={picked} onClick={onOpen}>
-      {picked !== undefined && <span className="pick">{picked ? '✓' : ''}</span>}
+    <button className="chartcard" onClick={onOpen}>
       <span className="thumb">{thumb && <img src={thumb} alt="" />}</span>
       <span className="meta">
         <b>{chart.title}</b>

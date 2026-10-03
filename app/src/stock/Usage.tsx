@@ -38,12 +38,12 @@ export function Usage({ charts, onClose }: { charts: Chart[]; onClose: () => voi
   return (
     <div className="page">
       <div className="toolbar">
-        <button className="circle glass" aria-label="返回图纸列表" onClick={onClose}>
+        <button className="circle glass" aria-label="返回统计" onClick={onClose}>
           <Icon d={ICONS.back} size={20} />
         </button>
       </div>
       <header className="title flat">
-        <h1>用量统计</h1>
+        <h1>预计消耗</h1>
         <span className="sub">{charts.length} 张图纸</span>
       </header>
       <div className="chips">

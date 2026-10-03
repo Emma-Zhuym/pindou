@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { codeColour } from '../shared'
 import { type Chart, getStock, type Stock } from '../store'
 import { grams } from '../stock/beads'
+import { PickCharts } from './PickCharts'
 
 type Range = 'all' | 'year' | 'month'
 const RANGES: [Range, string][] = [
@@ -10,8 +11,22 @@ const RANGES: [Range, string][] = [
   ['month', '近 30 天'],
 ]
 const TOP = 12
+// a chart's time counts when the timer clearly ran through the beading: ten minutes or more, and
+// no faster than anyone places beads by hand
+const MIN_TIMED = 600
+const MAX_SPEED = 4000
 const MONTHS = 12
 const DAY = 86400000
+// the charts last estimated, chosen again next time (this device only)
+const PICK_KEY = 'pindou.estimate'
+function lastPicked(): string[] {
+  try {
+    const ids = JSON.parse(localStorage.getItem(PICK_KEY) ?? '[]')
+    return Array.isArray(ids) ? ids : []
+  } catch {
+    return []
+  }
+}
 
 const beadsOf = (c: Chart) => Object.values(c.counts).reduce((a, b) => a + b, 0)
 const seconds = (c: Chart) => c.progress?.seconds ?? 0
@@ -31,8 +46,9 @@ const monthKey = (t: number) => {
  * speed), month by month, the codes used most, the charts under way and a few records. Charts
  * finished before their finishing time was kept count from the stock deduction or their last change.
  */
-export function StatsPage({ charts, onOpen }: { charts: Chart[] | null; onOpen: (id: string) => void }) {
+export function StatsPage({ charts, onOpen, onUsage }: { charts: Chart[] | null; onOpen: (id: string) => void; onUsage: (ids: string[]) => void }) {
   const [range, setRange] = useState<Range>('all')
+  const [picking, setPicking] = useState(false)
   const [stock, setStock] = useState<Stock | null>(null)
   useEffect(() => {
     getStock().then(setStock)
@@ -47,7 +63,7 @@ export function StatsPage({ charts, onOpen }: { charts: Chart[] | null; onOpen: 
   const since = range === 'all' ? 0 : range === 'year' ? new Date(new Date(now).getFullYear(), 0, 1).getTime() : now - 30 * DAY
   const done = all.filter((c) => c.status === 'done' && doneAt(c) >= since)
   const beads = done.reduce((a, c) => a + beadsOf(c), 0)
-  const timed = done.filter((c) => seconds(c) >= 60)
+  const timed = done.filter((c) => seconds(c) >= MIN_TIMED && (beadsOf(c) / seconds(c)) * 3600 <= MAX_SPEED)
   const time = timed.reduce((a, c) => a + seconds(c), 0)
   const speed = time ? Math.round((timed.reduce((a, c) => a + beadsOf(c), 0) / time) * 3600) : 0
 
@@ -79,7 +95,7 @@ export function StatsPage({ charts, onOpen }: { charts: Chart[] | null; onOpen: 
 
   const biggest = [...done].sort((a, b) => beadsOf(b) - beadsOf(a))[0]
   const longest = [...timed].sort((a, b) => seconds(b) - seconds(a))[0]
-  const fastest = timed.filter((c) => seconds(c) >= 600).sort((a, b) => beadsOf(b) / seconds(b) - beadsOf(a) / seconds(a))[0]
+  const fastest = [...timed].sort((a, b) => beadsOf(b) / seconds(b) - beadsOf(a) / seconds(a))[0]
 
   return (
     <div className="page">
@@ -105,6 +121,30 @@ export function StatsPage({ charts, onOpen }: { charts: Chart[] | null; onOpen: 
           <span>已拼</span>
         </div>
       </section>
+
+      <h2 className="sectiontitle">预计消耗</h2>
+      <section className="card estimate">
+        <p className="hint">选几张打算拼的图纸，算一共要多少豆子、库存够不够、缺的该买几袋。只是算一算，不动库存。</p>
+        <button className="primary small" disabled={!all.length} onClick={() => setPicking(true)}>
+          选图纸
+        </button>
+      </section>
+      {picking && (
+        <PickCharts
+          charts={all}
+          initial={lastPicked()}
+          onClose={() => setPicking(false)}
+          onDone={(ids) => {
+            try {
+              localStorage.setItem(PICK_KEY, JSON.stringify(ids))
+            } catch {
+              // private browsing: not remembered
+            }
+            setPicking(false)
+            onUsage(ids)
+          }}
+        />
+      )}
 
       <h2 className="sectiontitle">拼完的</h2>
       <div className="segmented full" role="radiogroup" aria-label="时间范围">
@@ -133,7 +173,7 @@ export function StatsPage({ charts, onOpen }: { charts: Chart[] | null; onOpen: 
         </div>
       </section>
       {!done.length && <p className="hint">{count('done') ? '这段时间里还没有拼完的图纸。' : '把图纸标成"已拼"后，这里会算拼了多少颗、花了多久。'}</p>}
-      {done.length > 0 && timed.length < done.length && <p className="hint">用时只算拼豆时开过计时的图纸（{timed.length} 张）。</p>}
+      {done.length > 0 && timed.length < done.length && <p className="hint">用时和速度只算拼豆时一直开着计时的图纸（{timed.length} 张），计时太短的不算。</p>}
 
       {top.length > 0 && (
         <section className="card topcodes">
