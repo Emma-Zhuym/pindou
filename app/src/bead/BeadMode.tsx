@@ -6,6 +6,8 @@ import type { Chart } from '../store'
 /** The pegboards sold: square, this many pegs a side. */
 const BOARDS = [52, 78, 104] as const
 const MIN_CELL = 4
+const LABEL_CELL = 20 // smallest cell the code is printed in
+const GUIDE = '#e5243b' // every 5th and 10th grid line
 const MAX_SIDE = 4000 // canvas pixels a side, within what phones allow
 
 const pad = (n: number) => String(n).padStart(2, '0')
@@ -29,6 +31,7 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
   const fits = BOARDS.filter((n) => n >= Math.max(cols, rows))
   const [board, setBoard] = useState<number | null>(chart.progress?.board ?? fits[0] ?? null)
   const [mirror, setMirror] = useState(chart.progress?.mirror ?? false)
+  const [labels, setLabels] = useState(chart.progress?.labels ?? false)
   const [done, setDone] = useState<string[]>(chart.progress?.done ?? [])
   const [focus, setFocus] = useState<string | null>(null)
   const [seconds, setSeconds] = useState(chart.progress?.seconds ?? 0)
@@ -50,13 +53,13 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
   const placed = counts.reduce((a, [c, n]) => a + (done.includes(c) ? n : 0), 0)
 
   // keep progress with the chart; latest values through a ref so the timer can save too
-  const latest = useRef({ chart, board, mirror, done, seconds })
+  const latest = useRef({ chart, board, mirror, labels, done, seconds })
   useLayoutEffect(() => {
-    latest.current = { chart, board, mirror, done, seconds }
+    latest.current = { chart, board, mirror, labels, done, seconds }
   })
   const save = (patch: Partial<Chart> = {}) => {
     const l = latest.current
-    return onChange({ ...l.chart, ...patch, progress: { board: l.board ?? undefined, mirror: l.mirror, done: l.done, seconds: l.seconds }, updatedAt: Date.now() })
+    return onChange({ ...l.chart, ...patch, progress: { board: l.board ?? undefined, mirror: l.mirror, labels: l.labels, done: l.done, seconds: l.seconds }, updatedAt: Date.now() })
   }
   useEffect(() => {
     if (!running) return
@@ -92,7 +95,7 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
       for (let y = 0; y < side; y++) for (let x = 0; x < side; x++) ctx.fillRect(m + (x + 0.5) * cell - 1, m + (y + 0.5) * cell - 1, 2, 2)
     }
     const at = (c0: number) => (mirror ? cols - 1 - c0 : c0)
-    const text = cell >= 18
+    const text = labels && cell >= LABEL_CELL
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     ctx.font = `600 ${Math.floor(cell * 0.36)}px -apple-system, sans-serif`
@@ -113,27 +116,49 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
       }
     }
     ctx.globalAlpha = 1
-    // guide lines over the chart, from its own first row and column: dashed every 5, solid every 10
+    // Grid over the chart, counted from its own first row and column: a thin line round every
+    // cell, every 5th dashed and darker, every 10th solid and darkest.
     const x0 = m + ox * cell
     const y0 = m + oy * cell
-    ctx.strokeStyle = 'rgba(0,0,0,0.55)'
-    for (let k = 0; k <= cols; k += 5) {
-      const x = x0 + (mirror ? cols - k : k) * cell
-      ctx.lineWidth = k % 10 === 0 ? 1.5 : 1
-      ctx.setLineDash(k % 10 === 0 ? [] : [4, 3])
-      ctx.beginPath()
-      ctx.moveTo(x, y0)
-      ctx.lineTo(x, y0 + rows * cell)
+    // the marked lines in a strong red on a white halo, so they show on dark beads and light alike
+    const line = (k: number, vertical: boolean) => {
+      const strong = k % 10 === 0
+      const mid = !strong && k % 5 === 0
+      const path = () => {
+        ctx.beginPath()
+        if (vertical) {
+          const x = x0 + (mirror ? cols - k : k) * cell
+          ctx.moveTo(x, y0)
+          ctx.lineTo(x, y0 + rows * cell)
+        } else {
+          const y = y0 + k * cell
+          ctx.moveTo(x0, y)
+          ctx.lineTo(x0 + cols * cell, y)
+        }
+      }
+      if (!strong && !mid) {
+        ctx.strokeStyle = 'rgba(0,0,0,0.16)'
+        ctx.lineWidth = 0.75
+        ctx.setLineDash([])
+        path()
+        ctx.stroke()
+        return
+      }
+      const width = strong ? 2 : 1.25
+      ctx.setLineDash(mid ? [Math.max(3, cell / 3), Math.max(2, cell / 5)] : [])
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)'
+      ctx.lineWidth = width + 2
+      path()
+      ctx.stroke()
+      ctx.strokeStyle = GUIDE
+      ctx.lineWidth = width
+      path()
       ctx.stroke()
     }
-    for (let k = 0; k <= rows; k += 5) {
-      const y = y0 + k * cell
-      ctx.lineWidth = k % 10 === 0 ? 1.5 : 1
-      ctx.setLineDash(k % 10 === 0 ? [] : [4, 3])
-      ctx.beginPath()
-      ctx.moveTo(x0, y)
-      ctx.lineTo(x0 + cols * cell, y)
-      ctx.stroke()
+    // thin ones first, so the marked ones lie on top
+    for (const pass of [0, 1]) {
+      for (let k = 0; k <= cols; k++) if ((k % 5 === 0) === (pass === 1)) line(k, true)
+      for (let k = 0; k <= rows; k++) if ((k % 5 === 0) === (pass === 1)) line(k, false)
     }
     ctx.setLineDash([])
     // the chart's edge, and the pegboard's
@@ -149,7 +174,7 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
     ctx.font = `${Math.max(9, Math.floor(cell * 0.7))}px -apple-system, sans-serif`
     for (let k = 5; k <= cols; k += 5) ctx.fillText(String(k), x0 + ((mirror ? cols - k : k - 1) + 0.5) * cell, m - cell * 0.8)
     for (let k = 5; k <= rows; k += 5) ctx.fillText(String(k), m - cell * 0.9, y0 + (k - 0.5) * cell)
-  }, [cells, cols, rows, side, board, cell, mirror, focus, done])
+  }, [cells, cols, rows, side, board, cell, mirror, labels, focus, done])
 
   const toggleDone = (code: string) => {
     const next = done.includes(code) ? done.filter((c) => c !== code) : [...done, code]
@@ -201,6 +226,16 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
         </div>
         <button className={mirror ? 'chip on' : 'chip'} onClick={() => setMirror(!mirror)}>
           镜像
+        </button>
+        <button
+          className={labels ? 'chip on' : 'chip'}
+          onClick={() => {
+            // codes need room: zoom in far enough to read them
+            if (!labels && cell < LABEL_CELL) setCell(Math.min(maxCell, LABEL_CELL))
+            setLabels(!labels)
+          }}
+        >
+          色号
         </button>
         <div className="zoom">
           <button className="link" aria-label="缩小" onClick={() => setCell(Math.max(MIN_CELL, cell - 2))}>

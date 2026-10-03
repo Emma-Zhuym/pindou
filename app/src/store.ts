@@ -33,7 +33,7 @@ export interface Chart {
    *  charts saved before it was kept: reopening then has to find it again. */
   board?: { grid: Grid; extent: Extent }
   /** beading progress: pegboard and mirroring chosen, codes ticked off, seconds spent */
-  progress?: { board?: number; mirror?: boolean; done: string[]; seconds: number }
+  progress?: { board?: number; mirror?: boolean; labels?: boolean; done: string[]; seconds: number }
 }
 
 const DB = 'pindou'
