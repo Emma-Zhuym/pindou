@@ -3,3 +3,4 @@ __pycache__/
 *.npz
 out/
 .DS_Store
+shortcut/*.unsigned.shortcut

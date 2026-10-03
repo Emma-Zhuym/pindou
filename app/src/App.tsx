@@ -495,6 +495,21 @@ function SettingsPage({ onRestored, count }: { onRestored: () => Promise<void>; 
         </div>
         {note && <p className="hint">{note}</p>}
       </section>
+
+      <h2 className="sectiontitle">关于</h2>
+      <section className="card form">
+        <p className="hint">
+          源代码：
+          <a className="link" href="https://github.com/Emma-Zhuym/pindou" target="_blank" rel="noreferrer">
+            github.com/Emma-Zhuym/pindou
+          </a>
+          （AGPL-3.0）。MARD 色卡数据来自{' '}
+          <a className="link" href="https://github.com/Zippland/perler-beads" target="_blank" rel="noreferrer">
+            Zippland/perler-beads
+          </a>
+          （AGPL-3.0）。屏幕上的颜色只是近似，以实物豆子为准。
+        </p>
+      </section>
     </div>
   )
 }

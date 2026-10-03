@@ -533,14 +533,17 @@ function ImportPage(props: {
         <span>也可以把图片拖进来，或直接粘贴</span>
       </label>
       <LinkImport disabled={!!busy} onPick={onLink} />
-      <div className="samples">
-        <span>试用样本图：</span>
-        {SAMPLES.map((s) => (
-          <button key={s} className="link" disabled={!!busy} onClick={() => onOpen(`/samples/${s}.jpg`)}>
-            {s}
-          </button>
-        ))}
-      </div>
+      {/* other people's charts: on this Mac only, never in the published app */}
+      {import.meta.env.DEV && (
+        <div className="samples">
+          <span>试用样本图：</span>
+          {SAMPLES.map((s) => (
+            <button key={s} className="link" disabled={!!busy} onClick={() => onOpen(`/samples/${s}.jpg`)}>
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
       {error && <p className="error">{error}</p>}
       {rec && img && (
         <>

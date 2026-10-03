@@ -1,0 +1,29 @@
+# 「拼豆读笔记」快捷指令
+
+网页版拼豆 App 放在 GitHub Pages 上，只是静态网页，自己读不了小红书笔记：小红书不允许别的网站读取笔记页面，网页也没法假装成手机浏览器。所以由 iPhone 的快捷指令来读，App 再从里面找出图片列表。图片本身是 App 直接从小红书的图片服务器下载的。全程不登录、不用 Cookie，一次只读一条笔记。
+
+## 安装
+
+在 iPhone 的 Safari 里打开下面的链接，下载后点"添加快捷指令"：
+
+https://emma-zhuym.github.io/pindou/拼豆读笔记.shortcut
+
+## 使用
+
+1. 在小红书笔记里点"分享"，在分享菜单里选"拼豆读笔记"。
+   - 也可以先点"复制链接"，再从快捷指令 App 或主屏幕运行它，它会读剪贴板里的链接。
+2. 第一次运行时，iPhone 会问是否允许连接 xhslink.cn、xiaohongshu.com，选"允许"。
+3. 看到"已复制"的通知后，回到拼豆 App，点"＋"，再点「粘贴快捷指令结果」。
+4. App 会列出笔记里的所有图，点图纸那张导入。如果要镜像熨烫，就选镜像版。
+
+## 它做了什么（也可以照着自己搭）
+
+1. 接收：共享表单的文本和 URL；没有输入时取剪贴板
+2. 从输入获取 URL，取第一项
+3. 获取该 URL 的内容：方法 GET，请求头 `User-Agent` 设为手机 Safari 的标识：
+   `Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1`
+   （不设的话，小红书会要求登录）
+4. 把内容的名称设为 `note.txt`，然后"获取文本"。这一步让它按网页源代码处理，而不是显示出来的文字。
+5. 拷贝至剪贴板，显示通知
+
+快捷指令由 [`shortcut/build.py`](shortcut/build.py) 生成，用 macOS 的 `shortcuts sign` 签名。

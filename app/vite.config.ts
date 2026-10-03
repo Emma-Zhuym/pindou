@@ -1,5 +1,7 @@
 import react from '@vitejs/plugin-react'
+import { createReadStream, existsSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { resolve } from 'node:path'
 import { defineConfig, type Plugin } from 'vite'
 import { readNote, RelayError } from './relay/xhs.ts'
 
@@ -23,9 +25,28 @@ function xhsRelay(): Plugin {
   }
 }
 
+/** GET /samples/<name>.jpg: the test charts in ../samples (other people's work), on this Mac only. */
+function devSamples(): Plugin {
+  const dir = resolve(import.meta.dirname, '../samples')
+  return {
+    name: 'dev-samples',
+    apply: 'serve',
+    configureServer: (server) =>
+      void server.middlewares.use((req, res, next) => {
+        const name = /^\/samples\/([\w-]+\.jpg)$/.exec(req.url ?? '')?.[1]
+        const file = name && resolve(dir, name)
+        if (!file || !existsSync(file)) return next()
+        res.setHeader('Content-Type', 'image/jpeg')
+        createReadStream(file).pipe(res)
+      }),
+  }
+}
+
 // https://vite.dev/config/
-export default defineConfig({
-  plugins: [react(), xhsRelay()],
+export default defineConfig(({ command }) => ({
+  // published at https://emma-zhuym.github.io/pindou/
+  base: command === 'build' ? '/pindou/' : '/',
+  plugins: [react(), xhsRelay(), devSamples()],
   // reachable from a phone on the same network (http://<this Mac's address>:5173)
   server: { host: true },
-})
+}))
