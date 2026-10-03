@@ -5,7 +5,7 @@ import { codeOrder } from '../shared'
 /** about this many beads to a gram */
 export const PER_GRAM = 100
 /** the bag sizes the shop sells, in grams */
-export const BAGS = [12, 40]
+export const BAGS = [12, 24, 40, 80]
 /** the standard 221-colour set (A to H, M) */
 export const SET_221 = CODES.filter((c) => /^[A-HM]\d+$/.test(c)).sort(codeOrder)
 /** what the stock page lists even when empty: the set plus the clear L1 */
@@ -22,21 +22,8 @@ export function readCode(text: string): string | null {
   return code in CATALOGUE ? code : null
 }
 
-/** The fewest grams (then the fewest bags) that cover `beads`, as bag counts by size. */
-export function bagsFor(beads: number): { size: number; n: number }[] {
-  if (beads <= 0) return []
-  const [small, large] = BAGS
-  let best = { grams: Infinity, bags: Infinity, l: 0, s: 0 }
-  for (let l = 0; l <= Math.ceil(beads / (large * PER_GRAM)); l++) {
-    const s = Math.ceil(Math.max(0, beads - l * large * PER_GRAM) / (small * PER_GRAM))
-    const g = l * large + s * small
-    if (g < best.grams || (g === best.grams && l + s < best.bags)) best = { grams: g, bags: l + s, l, s }
-  }
-  return [
-    { size: large, n: best.l },
-    { size: small, n: best.s },
-  ].filter((b) => b.n > 0)
-}
+/** The bag that tops `missing` beads back up: the smallest that covers it, else the largest. */
+export const bagFor = (missing: number) => BAGS.find((g) => g * PER_GRAM >= missing) ?? BAGS[BAGS.length - 1]
 
 export interface TableRead {
   /** beads by code */

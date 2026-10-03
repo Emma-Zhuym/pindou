@@ -1,22 +1,22 @@
 import { useEffect, useState } from 'react'
 import { Icon } from '../Icon'
-import { codeColour, codeOrder, copyText, ICONS } from '../shared'
+import { codeColour, codeOrder, ICONS } from '../shared'
 import { type Chart, getStock, type Stock } from '../store'
-import { bagsFor, grams } from './beads'
+import { grams } from './beads'
+import { Shopping } from './Shopping'
+import { type SortBy, SortHead } from './SortHead'
 
-const bagText = (beads: number) =>
-  bagsFor(beads)
-    .map((b) => `${b.n > 1 ? `${b.n}×` : ''}${b.size}克`)
-    .join(' + ')
+type Col = 'code' | 'need' | 'have' | 'left'
 
 /**
- * What a chosen set of charts takes, code by code, against the beads on hand: what runs short and
- * the bags that would cover it. Nothing is taken from the stock here.
+ * What a chosen set of charts takes, code by code, against the beads on hand and what would be
+ * left, as a table sortable by any column; the shopping list for what runs low is a page of its
+ * own. Nothing is taken from the stock here.
  */
 export function Usage({ charts, onClose }: { charts: Chart[]; onClose: () => void }) {
   const [stock, setStock] = useState<Stock | null>(null)
-  const [onlyShort, setOnlyShort] = useState(false)
-  const [copied, setCopied] = useState('')
+  const [sort, setSort] = useState<SortBy<Col>>({ key: 'need', desc: true })
+  const [shopping, setShopping] = useState(false)
   useEffect(() => {
     getStock().then(setStock)
   }, [])
@@ -24,22 +24,25 @@ export function Usage({ charts, onClose }: { charts: Chart[]; onClose: () => voi
   const need: Record<string, number> = {}
   for (const c of charts) for (const [code, n] of Object.entries(c.counts)) need[code] = (need[code] ?? 0) + n
   const have = (c: string) => stock?.beads[c] ?? 0
-  const short = (c: string) => Math.max(0, need[c] - have(c))
-  const codes = Object.keys(need).sort(codeOrder)
-  const shortCodes = codes.filter((c) => short(c) > 0)
-  const shown = onlyShort ? shortCodes : codes
+  const left = (c: string) => have(c) - (need[c] ?? 0)
+  const value = { need: (c: string) => need[c], have, left }
+  const codes = Object.keys(need).sort((a, b) => {
+    const by = sort.key === 'code' ? codeOrder(a, b) : value[sort.key](a) - value[sort.key](b) || codeOrder(a, b)
+    return sort.desc ? -by : by
+  })
+  const short = codes.filter((c) => left(c) < 0)
   const total = codes.reduce((a, c) => a + need[c], 0)
 
-  const copyList = async () => {
-    const list = shortCodes.map((c) => `${c} ${bagText(short(c))}（缺 ${short(c)} 颗）`).join('\n')
-    setCopied((await copyText(list)) ? '已复制' : '复制失败，可以长按选中')
-  }
+  if (shopping && stock) return <Shopping stock={stock} need={need} onClose={() => setShopping(false)} />
 
   return (
     <div className="page">
       <div className="toolbar">
         <button className="circle glass" aria-label="返回统计" onClick={onClose}>
           <Icon d={ICONS.back} size={20} />
+        </button>
+        <button className="primary small" onClick={() => setShopping(true)}>
+          补豆清单
         </button>
       </div>
       <header className="title flat">
@@ -64,45 +67,31 @@ export function Usage({ charts, onClose }: { charts: Chart[]; onClose: () => voi
           <span>颗（约 {grams(total)}）</span>
         </div>
         <div>
-          <b className={shortCodes.length ? 'bad' : undefined}>{shortCodes.length}</b>
+          <b className={short.length ? 'bad' : undefined}>{short.length}</b>
           <span>色不够</span>
         </div>
       </section>
 
-      <div className="row">
-        <div className="segmented small" role="radiogroup" aria-label="筛选">
-          <button role="radio" aria-checked={!onlyShort} aria-selected={!onlyShort} onClick={() => setOnlyShort(false)}>
-            全部
-          </button>
-          <button role="radio" aria-checked={onlyShort} aria-selected={onlyShort} onClick={() => setOnlyShort(true)}>
-            不够 {shortCodes.length}
-          </button>
+      <section className="card usetable" role="table" aria-label="预计消耗">
+        <div className="userow head" role="row">
+          <SortHead k="code" label="色号" sort={sort} onSort={setSort} first="asc" />
+          <SortHead k="need" label="消耗" sort={sort} onSort={setSort} />
+          <SortHead k="have" label="库存" sort={sort} onSort={setSort} />
+          <SortHead k="left" label="预计剩余" sort={sort} onSort={setSort} first="asc" />
         </div>
-        {shortCodes.length > 0 && (
-          <button className="small glass" onClick={copyList}>
-            复制购物清单
-          </button>
-        )}
-        {copied && <span className="sub">{copied}</span>}
-      </div>
-      <p className="hint">按整张图纸算，和库存对比；这里只是算一算，不会动库存。"建议买"按 12 克 / 40 克两种袋子凑最少克数。</p>
-
-      <section className="card stocklist">
-        {shown.map((c) => {
-          const lack = short(c)
-          return (
-            <div key={c} className="stockrow usagerow">
+        {codes.map((c) => (
+          <div key={c} className="userow" role="row">
+            <span className="code">
               <span className="swatch" style={{ background: codeColour(c) }} />
               <b>{c}</b>
-              <span className="sub need">
-                要 {need[c]} · 有 {have(c)}
-              </span>
-              <span className={lack ? 'num bad' : 'num sub'}>{lack ? `缺 ${lack} · 买 ${bagText(lack)}` : '够'}</span>
-            </div>
-          )
-        })}
-        {!shown.length && <p className="hint">都够啦。</p>}
+            </span>
+            <span className="num">{need[c]}</span>
+            <span className="num">{have(c)}</span>
+            <span className={left(c) < 0 ? 'num bad' : 'num'}>{left(c)}</span>
+          </div>
+        ))}
       </section>
+      <p className="hint">单位都是颗。点表头排序，再点一次反过来。预计剩余 = 库存 − 消耗，按整张图纸算，只是算一算，不动库存。</p>
     </div>
   )
 }

@@ -1293,13 +1293,6 @@ img.boardview {
 
 /* ---------------------------------------------------------------- usage */
 
-.usagerow {
-  grid-template-columns: 20px 48px 1fr auto;
-}
-.usagerow .num {
-  font-weight: 600;
-  text-align: right;
-}
 .tablepaste {
   width: 100%;
   padding: 10px 12px;
@@ -1504,4 +1497,82 @@ img.boardview {
 }
 .pickrow .meta {
   padding: 0;
+}
+
+/* ---------------------------------------------------------------- usage table */
+
+.usetable {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 16px 8px;
+}
+.userow {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr 1.2fr;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  border-bottom: 0.5px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+.shoptable .userow {
+  grid-template-columns: 1.2fr 1fr 1.2fr;
+}
+.userow:last-child {
+  border-bottom: 0;
+}
+.userow.head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  min-height: 44px;
+  background: var(--card);
+}
+.userow .code {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.userow .num {
+  text-align: right;
+}
+.userow .num.bad {
+  font-weight: 600;
+}
+.userow.off {
+  color: var(--sub);
+}
+.sorthead {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--sub);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.sorthead:first-child {
+  justify-content: flex-start;
+}
+.sorthead.on {
+  color: var(--accent);
+}
+.sorthead .arrow {
+  font-size: 11px;
+  opacity: 0.7;
+}
+.bagselect {
+  justify-self: end;
+  min-width: 84px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--fill);
+  color: inherit;
+  font: inherit;
+  text-align: right;
 }
