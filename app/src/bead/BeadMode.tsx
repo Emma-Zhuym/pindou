@@ -19,7 +19,11 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
   const fits = BOARDS.filter((n) => n >= Math.max(cols, rows))
   const [board, setBoard] = useState<number | null>(chart.progress?.board ?? fits[0] ?? null)
   const [mirror, setMirror] = useState(chart.progress?.mirror ?? false)
-  const [labels, setLabels] = useState(chart.progress?.labels ?? false)
+  const [labels, setLabels] = useState(chart.progress?.labels ?? true)
+  // where the chart sits on the pegboard (pegs from its top left); null: centred
+  const [offset, setOffset] = useState<{ x: number; y: number } | null>(chart.progress?.offset ?? null)
+  const [moving, setMoving] = useState(false)
+  const drag = useRef<{ x: number; y: number; from: { x: number; y: number } } | null>(null)
   const [done, setDone] = useState<string[]>(chart.progress?.done ?? [])
   const [focus, setFocus] = useState<string | null>(null)
   const [seconds, setSeconds] = useState(chart.progress?.seconds ?? 0)
@@ -41,13 +45,13 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
   const placed = counts.reduce((a, [c, n]) => a + (done.includes(c) ? n : 0), 0)
 
   // keep progress with the chart; latest values through a ref so the timer can save too
-  const latest = useRef({ chart, board, mirror, labels, done, seconds })
+  const latest = useRef({ chart, board, mirror, labels, offset, done, seconds })
   useLayoutEffect(() => {
-    latest.current = { chart, board, mirror, labels, done, seconds }
+    latest.current = { chart, board, mirror, labels, offset, done, seconds }
   })
   const save = (patch: Partial<Chart> = {}) => {
     const l = latest.current
-    return onChange({ ...l.chart, ...patch, progress: { board: l.board ?? undefined, mirror: l.mirror, labels: l.labels, done: l.done, seconds: l.seconds }, updatedAt: Date.now() })
+    return onChange({ ...l.chart, ...patch, progress: { board: l.board ?? undefined, mirror: l.mirror, labels: l.labels, offset: l.offset ?? undefined, done: l.done, seconds: l.seconds }, updatedAt: Date.now() })
   }
   useEffect(() => {
     if (!running) return
@@ -60,8 +64,22 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
   }, [running]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (ref.current) paintChart(ref.current, { cells, cols, rows, cell, board, mirror, labels, focus, done })
-  }, [cells, cols, rows, board, cell, mirror, labels, focus, done])
+    if (ref.current) paintChart(ref.current, { cells, cols, rows, cell, board, mirror, labels, focus, done, offset: offset ?? undefined })
+  }, [cells, cols, rows, board, cell, mirror, labels, focus, done, offset])
+
+  // dragging the chart across the pegboard, a whole peg at a time, never off it
+  const centred = (n: number) => ({ x: Math.floor((n - cols) / 2), y: Math.floor((n - rows) / 2) })
+  const place = (p: { x: number; y: number }) => board && setOffset({ x: Math.min(board - cols, Math.max(0, p.x)), y: Math.min(board - rows, Math.max(0, p.y)) })
+  const grab = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!moving || !board) return
+    e.currentTarget.setPointerCapture(e.pointerId)
+    drag.current = { x: e.clientX, y: e.clientY, from: offset ?? centred(board) }
+  }
+  const slide = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const d = drag.current
+    if (!d) return
+    place({ x: d.from.x + Math.round((e.clientX - d.x) / cell), y: d.from.y + Math.round((e.clientY - d.y) / cell) })
+  }
 
   const toggleDone = (code: string) => {
     const next = done.includes(code) ? done.filter((c) => c !== code) : [...done, code]
@@ -87,6 +105,7 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
 
   return (
     <div className="bead">
+      <div className="beadtop">
       <header className="flowbar">
         <button className="circle glass" aria-label="退出拼豆模式" onClick={close}>
           <Icon d={ICONS.close} size={20} />
@@ -106,7 +125,17 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
       <div className="beadtools">
         <div className="segmented small" role="radiogroup" aria-label="豆板">
           {BOARDS.map((n) => (
-            <button key={n} role="radio" aria-checked={board === n} aria-selected={board === n} disabled={n < Math.max(cols, rows)} onClick={() => setBoard(n)}>
+            <button
+              key={n}
+              role="radio"
+              aria-checked={board === n}
+              aria-selected={board === n}
+              disabled={n < Math.max(cols, rows)}
+              onClick={() => {
+                setBoard(n)
+                setOffset(null)
+              }}
+            >
               {n}
             </button>
           ))}
@@ -114,6 +143,18 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
         <button className={mirror ? 'chip on' : 'chip'} onClick={() => setMirror(!mirror)}>
           镜像
         </button>
+        {board && (
+          <>
+            <button className={moving ? 'chip on' : 'chip'} onClick={() => setMoving(!moving)}>
+              {moving ? '挪好了' : '挪位置'}
+            </button>
+            {offset && (
+              <button className="chip" onClick={() => setOffset(null)}>
+                居中
+              </button>
+            )}
+          </>
+        )}
         <button
           className={labels ? 'chip on' : 'chip'}
           onClick={() => {
@@ -135,8 +176,11 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
         </div>
       </div>
 
+      </div>
+
       <div className="beadstage">
-        <canvas ref={ref} />
+        {moving && <p className="hint">在图上拖动，把图案挪到豆板上想放的位置；红线是豆板上印的线，不会跟着动。</p>}
+        <canvas ref={ref} style={{ touchAction: moving ? 'none' : 'auto' }} onPointerDown={grab} onPointerMove={slide} onPointerUp={() => (drag.current = null)} onPointerCancel={() => (drag.current = null)} />
       </div>
 
       <nav className="beadpalette" aria-label="色号">

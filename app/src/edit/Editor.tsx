@@ -27,7 +27,7 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
   const [history, setHistory] = useState<string[][]>([])
   const [tool, setTool] = useState<Tool>('move')
   const [code, setCode] = useState<string>(() => Object.keys(chart.counts).sort(codeOrder)[0] ?? 'H2')
-  const [labels, setLabels] = useState(chart.progress?.labels ?? false)
+  const [labels, setLabels] = useState(chart.progress?.labels ?? true)
   // the colour card, open for the brush or for the swap's target
   const [card, setCard] = useState<'brush' | 'swap' | null>(null)
   const [swap, setSwap] = useState<{ from: string; to: string } | null>(null)
@@ -135,6 +135,7 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
 
   return (
     <div className="bead editor">
+      <div className="beadtop">
       <header className="flowbar">
         <button className="circle glass" aria-label="退出编辑" onClick={close}>
           <Icon d={ICONS.close} size={20} />
@@ -182,6 +183,8 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
             +
           </button>
         </div>
+      </div>
+
       </div>
 
       <div className="beadstage">

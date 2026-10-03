@@ -1217,3 +1217,21 @@ img.boardview {
   flex: 1;
   min-width: 0;
 }
+
+/* bead mode and editor: title and tools stay on top while the board scrolls */
+.beadtop {
+  position: sticky;
+  top: 0;
+  z-index: 12;
+  background: var(--glass);
+  border-bottom: 1px solid var(--glass-edge);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+}
+.beadtop .flowbar {
+  position: static;
+}
+.beadstage > .hint {
+  max-width: 960px;
+  margin: 0 auto 8px;
+}
