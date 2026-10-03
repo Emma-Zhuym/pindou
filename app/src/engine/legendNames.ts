@@ -49,7 +49,7 @@ export function cellsBySwatch(rec: Recognition, swatches: LegendSwatch[]): Int16
   const { fill } = rec.cells
   const out = new Int16Array(rec.assign.length).fill(-1)
   for (let i = 0; i < out.length; i++) {
-    if (rec.assign[i] < 0) continue
+    if (rec.empty[i]) continue
     let best = -1
     let bd = Infinity
     swatches.forEach((s, k) => {

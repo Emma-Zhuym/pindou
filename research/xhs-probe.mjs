@@ -9,6 +9,8 @@
 // Images are saved under research/out/xhs/<noteId>/ for a visual check of watermark and
 // quality. The report also notes whether a browser page could read them (CORS headers).
 // Research only: no login, no cookies, one request at a time.
+// VARIANTS=ci-jpg (comma list) limits which URL forms are fetched; default: all.
+import { createHash } from 'node:crypto'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -114,18 +116,20 @@ async function probe(text) {
   for (const [n, im] of withImages.images.entries()) {
     const token = im.urlDefault.split('/').slice(5).join('/').split('!')[0]
     const entry = { index: n + 1, listed: `${im.width}x${im.height}`, variants: [] }
+    const wanted = process.env.VARIANTS?.split(',')
     for (const [name, src] of [
       ['default', im.urlDefault],
+      ['ci-jpg', `https://ci.xiaohongshu.com/${token}?imageView2/format/jpg`],
       ['ci-png', `https://ci.xiaohongshu.com/${token}?imageView2/format/png`],
       ['sns-img-bd', `https://sns-img-bd.xhscdn.com/${token}`],
-    ]) {
+    ].filter(([name]) => !wanted || wanted.includes(name))) {
       try {
         const res = await fetch(src, { headers: { 'User-Agent': UA.desktop, Referer: 'https://www.xiaohongshu.com/' } })
         const buf = await res.arrayBuffer()
         const info = imageSize(buf)
         const file = join(dir, `${n + 1}-${name}.${info.format === 'unknown' ? 'bin' : info.format}`)
         if (res.ok) writeFileSync(file, Buffer.from(buf))
-        entry.variants.push({ name, status: res.status, bytes: buf.byteLength, ...info, cors: res.headers.get('access-control-allow-origin'), saved: res.ok ? file.replace(OUT, 'out/xhs') : null })
+        entry.variants.push({ name, status: res.status, bytes: buf.byteLength, sha1: createHash('sha1').update(Buffer.from(buf)).digest('hex').slice(0, 12), ...info, cors: res.headers.get('access-control-allow-origin'), saved: res.ok ? file.replace(OUT, 'out/xhs') : null })
       } catch (e) {
         entry.variants.push({ name, error: String(e) })
       }

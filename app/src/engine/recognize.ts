@@ -25,6 +25,8 @@ export interface Recognition {
   confidence: Float32Array
   /** cells worth a second look */
   unsure: Uint8Array
+  /** 1 for a cell left empty (plain background, nothing printed), whatever the groups say */
+  empty: Uint8Array
 }
 
 const rgbOf = (centre: Float64Array, k: number): Rgb => ({ r: centre[k * 3], g: centre[k * 3 + 1], b: centre[k * 3 + 2] })
@@ -140,6 +142,13 @@ export function recognise(img: Raster, render: TextRenderer, onProgress?: (step:
 
   // every cell picks the group whose colour AND label shape fit it best
   onProgress?.('assign')
+  const empty = new Uint8Array(n)
+  if (blank !== undefined) {
+    const bc = rgbOf(cl.centre, blank)
+    for (let i = 0; i < n; i++) {
+      if (cells.share[i] <= 0.06 && colourDist({ r: cells.fill[i * 3], g: cells.fill[i * 3 + 1], b: cells.fill[i * 3 + 2] }, bc) < 26) empty[i] = 1
+    }
+  }
   const assign = new Int16Array(n).fill(-1)
   const confidence = new Float32Array(n)
   const unsure = new Uint8Array(n)
@@ -180,7 +189,7 @@ export function recognise(img: Raster, render: TextRenderer, onProgress?: (step:
     confidence[i] = Math.max(0, Math.min(1, margin))
     if (margin < 0.12 || corr[best] < 0.3 || cd[best] > 90) unsure[i] = 1
   }
-  return { grid, extent, cells, fit, groups, assign, confidence, unsure }
+  return { grid, extent, cells, fit, groups, assign, confidence, unsure, empty }
 }
 
 export function countByCode(rec: Recognition, names?: string[]): Map<string, number> {
