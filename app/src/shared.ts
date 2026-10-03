@@ -36,6 +36,7 @@ export async function boardThumb(cols: number, rows: number, cells: string[]): P
 export const ICONS = {
   charts: 'M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zM4 9.5h16M4 14.5h16M9.5 4v16M14.5 4v16',
   stock: 'M4 13.5 6.5 6h11l2.5 7.5M4 13.5V18a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4.5M4 13.5h4.5l1 2h5l1-2H20',
+  stats: 'M4 20h16M7 20v-7M12 20V5M17 20v-10',
   settings: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 13.5l1.6 1.2-2 3.4-1.9-.7a7 7 0 0 1-2 1.1L14.8 21h-4l-.3-2.5a7 7 0 0 1-2-1.1l-1.9.7-2-3.4 1.6-1.2a7 7 0 0 1 0-2.4L4.6 10l2-3.4 1.9.7a7 7 0 0 1 2-1.1L10.8 3h4l.3 2.5a7 7 0 0 1 2 1.1l1.9-.7 2 3.4-1.6 1.2a7 7 0 0 1 0 2.4z',
   plus: 'M12 5v14M5 12h14',
   close: 'M6 6l12 12M18 6 6 18',

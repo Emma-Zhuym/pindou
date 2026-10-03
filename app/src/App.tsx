@@ -3,6 +3,7 @@ import './App.css'
 import { type AiSettings, listVisionModels, loadAiSettings, type ModelInfo, saveAiSettings } from './ai'
 import { BeadMode } from './bead/BeadMode'
 import { Editor } from './edit/Editor'
+import { StatsPage } from './stats/StatsPage'
 import { StockPage } from './stock/StockPage'
 import { Usage } from './stock/Usage'
 import { Flow } from './flow/Flow'
@@ -10,10 +11,11 @@ import { Icon } from './Icon'
 import { codeColour, codeOrder, drawBoard, ICONS } from './shared'
 import { type Chart, changeStock, deleteChart, exportBackup, getStock, importBackup, listCharts, persist, putChart, type Status, STATUS_LABEL, type Stock } from './store'
 
-type Tab = 'charts' | 'stock' | 'settings'
+type Tab = 'charts' | 'stock' | 'stats' | 'settings'
 const TABS: [Tab, string][] = [
   ['charts', '图纸'],
   ['stock', '库存'],
+  ['stats', '统计'],
   ['settings', '设置'],
 ]
 
@@ -153,6 +155,16 @@ export default function App() {
             />
           ))}
         {tab === 'stock' && <StockPage />}
+        {tab === 'stats' && (
+          <StatsPage
+            charts={charts}
+            onOpen={(id) => {
+              setTabState('charts')
+              setOpenId(id)
+              window.scrollTo(0, 0)
+            }}
+          />
+        )}
         {tab === 'settings' && <SettingsPage onRestored={reload} count={charts?.length ?? 0} />}
       </main>
       <div className="dock">
@@ -314,7 +326,7 @@ function ChartDetail(props: { chart: Chart; onBack: () => void; onEdit: () => vo
   // marking a chart done takes its beads out of the stock (once); undoing that can put them back
   const setStatus = async (status: Status) => {
     if (status === chart.status) return
-    const patch: Partial<Chart> = { status }
+    const patch: Partial<Chart> = { status, doneAt: status === 'done' ? stamp() : undefined }
     const beads = Object.values(chart.counts).reduce((a, b) => a + b, 0)
     if (status === 'done' && !chart.stockTaken && window.confirm(`拼完啦！从库存里扣掉这张图用的 ${beads} 颗豆子吗？`)) {
       await changeStock({ kind: 'used', note: chart.title, chartId: chart.id, delta: Object.fromEntries(Object.entries(chart.counts).map(([c, n]) => [c, -n])) })

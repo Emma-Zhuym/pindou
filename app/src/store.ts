@@ -34,6 +34,8 @@ export interface Chart {
   board?: { grid: Grid; extent: Extent }
   /** its beads were taken out of the stock when it was marked done (so they are not taken twice) */
   stockTaken?: boolean
+  /** when it was marked done (missing on charts finished before this was kept) */
+  doneAt?: number
   /** beading progress: pegboard and mirroring chosen, codes ticked off, seconds spent */
   progress?: { board?: number; mirror?: boolean; labels?: boolean; offset?: { x: number; y: number }; done: string[]; seconds: number }
 }
