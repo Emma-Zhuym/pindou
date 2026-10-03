@@ -90,6 +90,7 @@ function refineByLabels(rec: Recognition, colours: Rgb[], assign: Int16Array): I
   // A chart that leaves cells empty prints a code in every bead, so a cell with no code in it is
   // empty, whatever colour a watermark gave it.
   const gaps = rec.empty.some((e) => e === 1)
+  const noCode: number[] = []
   for (let i = 0; i < assign.length; i++) {
     if (assign[i] < 0) continue
     if (share[i] <= 0.06) {
@@ -110,9 +111,20 @@ function refineByLabels(rec: Recognition, colours: Rgb[], assign: Int16Array): I
     // clearly better than its colour's code, the colour itself is suspect (a watermark tints the
     // cell), so every code competes on its look, colour counting little.
     let bestLook = -Infinity
-    for (let g = 0; g < G; g++) if (looks[g]) bestLook = Math.max(bestLook, like(g))
+    let bestLookAt = assign[i]
+    for (let g = 0; g < G; g++) {
+      if (!looks[g]) continue
+      const l = like(g)
+      if (l > bestLook) {
+        bestLook = l
+        bestLookAt = g
+      }
+    }
     if (gaps && bestLook < NO_CODE) {
-      out[i] = -1
+      // decided below, once the empty cells around it are known; if it stays a bead, its faint
+      // print is a better guess than its tinted colour
+      noCode.push(i)
+      out[i] = bestLookAt
       continue
     }
     const tinted = bestLook - own > TINTED_GAP
@@ -130,6 +142,26 @@ function refineByLabels(rec: Recognition, colours: Rgb[], assign: Int16Array): I
       }
     }
     out[i] = best
+  }
+  // Empty cells lie together around the picture; a cell with beads on most sides is a bead whose
+  // code a watermark hides, so it keeps its colour's code.
+  const { cols, rows } = rec.cells
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const i of noCode) {
+      if (out[i] < 0) continue
+      const x = i % cols
+      const y = (i - x) / cols
+      let open = 0
+      for (const [a, b] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]) {
+        if (a < 0 || b < 0 || a >= cols || b >= rows || out[b * cols + a] < 0) open++
+      }
+      if (open >= 2) {
+        out[i] = -1
+        changed = true
+      }
+    }
   }
   return out
 }

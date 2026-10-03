@@ -81,7 +81,9 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
       let reading = localReading
       let got: AiLegend | null = known ?? null
       let note = !localReading ? '没有在图上找到图例色块' : needsHelp(localReading) ? '本地读图例没把握' : '已按图例读出色号'
-      if (!saved && !got && needsHelp(localReading)) {
+      // With a key set, the model reads every new legend: its codes and printed counts check the
+      // local reading (about $0.001 a chart). Without one, only the local reading.
+      if (!saved && !got) {
         const ai = loadAiSettings()
         if (ai.key && ai.model && rect) {
           setBusy('AI 正在读图例…')
@@ -90,7 +92,7 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
           } catch (e) {
             note += `；AI 读取失败：${e instanceof Error ? e.message : String(e)}`
           }
-        } else note += '。可以在「色号」页让 AI 读图例（需先在设置里填 Key），或手动核对'
+        } else if (needsHelp(localReading)) note += '。可以在「色号」页让 AI 读图例（需先在设置里填 Key），或手动核对'
       }
       if (got) {
         reading = fitList(first, got.entries, localReading)
@@ -555,6 +557,25 @@ function BoardCheck({ img, rec, busy, printedSize, onApply }: { img: HTMLImageEl
     ctx.strokeRect(x, y, ext.cols * grid.perX * scale, ext.rows * grid.perY * scale)
   }, [img, grid, ext])
   const changed = ext.r0 !== found.r0 || ext.c0 !== found.c0 || ext.rows !== found.rows || ext.cols !== found.cols
+  // the smallest board that still holds every bead: authors often leave rows of empty cells around
+  const trimmed = useMemo(() => {
+    const { cols, rows } = rec.cells
+    let top = rows
+    let bottom = -1
+    let left = cols
+    let right = -1
+    rec.assign.forEach((g, i) => {
+      if (g < 0) return
+      const x = i % cols
+      const y = (i - x) / cols
+      top = Math.min(top, y)
+      bottom = Math.max(bottom, y)
+      left = Math.min(left, x)
+      right = Math.max(right, x)
+    })
+    if (bottom < 0 || (top === 0 && left === 0 && bottom === rows - 1 && right === cols - 1)) return null
+    return { r0: rec.cells.r0 + top, c0: rec.cells.c0 + left, rows: bottom - top + 1, cols: right - left + 1 }
+  }, [rec])
   // moving an edge by one cell: top/left move the origin, bottom/right only the size
   const edge = (side: 'top' | 'bottom' | 'left' | 'right', d: number) => {
     const e = { ...ext }
@@ -589,6 +610,11 @@ function BoardCheck({ img, rec, busy, printedSize, onApply }: { img: HTMLImageEl
       </div>
       <canvas ref={ref} className="boardcanvas" />
       <p className="hint">蓝框是程序找到的图纸范围。和图纸上印的行列号对一下，不对就逐格调整边缘。</p>
+      {trimmed && (
+        <button className="link" onClick={() => setExt(trimmed)}>
+          裁掉四周空白（{trimmed.cols} 列 × {trimmed.rows} 行）
+        </button>
+      )}
       <div className="edgesteps">
         {stepper('top', '上边')}
         {stepper('bottom', '下边')}
@@ -1049,6 +1075,8 @@ function WallPage(props: {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [onlyUnsure, setOnlyUnsure] = useState(false)
   const LIMIT = 160
+  // most empty cells are plain background: show the likeliest misses, the rest on request
+  const BLANK_LIMIT = 48
 
   const byCode = useMemo(() => {
     const m = new Map<string, number[]>()
@@ -1062,6 +1090,21 @@ function WallPage(props: {
     for (const list of m.values()) list.sort((a, b) => rec.unsure[b] - rec.unsure[a] || rec.confidence[a] - rec.confidence[b])
     return [...m].sort((a, b) => codeOrder(a[0], b[0]))
   }, [assign, names, rec])
+
+  // Cells judged empty, so a code hidden by a watermark can be spotted: cells with print in them
+  // first, then those with beads on most sides, plain background last.
+  const blanks = useMemo(() => {
+    const { cols, rows, share } = rec.cells
+    const around = (i: number) => {
+      const x = i % cols
+      const y = (i - x) / cols
+      return [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]].filter(([a, b]) => a >= 0 && b >= 0 && a < cols && b < rows && assign[b * cols + a] >= 0).length
+    }
+    const list: number[] = []
+    for (let i = 0; i < assign.length; i++) if (assign[i] < 0) list.push(i)
+    const key = (i: number) => (share[i] > 0.06 ? 10 : 0) + around(i)
+    return list.sort((a, b) => key(b) - key(a))
+  }, [assign, rec])
 
   const codes = [...new Set(names.filter(Boolean))].sort(codeOrder)
   const toggle = (cell: number) => {
@@ -1092,6 +1135,26 @@ function WallPage(props: {
       <label className="toggle">
         <input type="checkbox" checked={onlyUnsure} onChange={(e) => setOnlyUnsure(e.target.checked)} /> 只看没把握的
       </label>
+      {blanks.length > 0 && (() => {
+        const shownBlanks = onlyUnsure ? blanks.filter((c) => rec.cells.share[c] > 0.06) : blanks
+        if (!shownBlanks.length) return null
+        const open = expanded.has('')
+        return (
+          <section className="card wall">
+            <header>
+              <span className="swatch blank" />
+              <b>空格</b>
+              <span className="sub">{blanks.length} 格，格子里有印字的排在最前；有色号的点一下改掉</span>
+            </header>
+            <Tiles img={img} rec={rec} cells={open ? shownBlanks : shownBlanks.slice(0, BLANK_LIMIT)} selected={selected} onPick={toggle} />
+            {shownBlanks.length > BLANK_LIMIT && (
+              <button className="link" onClick={() => setExpanded(new Set(open ? [...expanded].filter((c) => c !== '') : [...expanded, '']))}>
+                {open ? '收起' : `显示全部 ${shownBlanks.length} 格`}
+              </button>
+            )}
+          </section>
+        )
+      })()}
       {byCode.map(([code, all]) => {
         const cells = onlyUnsure ? all.filter((c) => rec.unsure[c]) : all
         if (!cells.length) return null
