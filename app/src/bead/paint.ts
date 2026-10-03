@@ -25,7 +25,7 @@ export interface PaintOptions {
 }
 
 /** Text colour that reads on a bead colour. */
-const inkOn = (code: string) => {
+export const inkOn = (code: string) => {
   const m = /rgb\((\d+),(\d+),(\d+)\)/.exec(codeColour(code))
   if (!m) return '#000'
   const [r, g, b] = m.slice(1).map(Number)

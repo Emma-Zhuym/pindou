@@ -4,6 +4,7 @@ import { CATALOGUE } from '../engine/glyphs'
 import { Icon } from '../Icon'
 import { boardThumb, codeColour, codeOrder, ICONS } from '../shared'
 import { type Chart, countCells } from '../store'
+import { ColourCard } from './ColourCard'
 
 type Tool = 'move' | 'brush' | 'eraser' | 'picker'
 const TOOLS: [Tool, string][] = [
@@ -27,7 +28,8 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
   const [tool, setTool] = useState<Tool>('move')
   const [code, setCode] = useState<string>(() => Object.keys(chart.counts).sort(codeOrder)[0] ?? 'H2')
   const [labels, setLabels] = useState(chart.progress?.labels ?? false)
-  const [other, setOther] = useState('')
+  // the colour card, open for the brush or for the swap's target
+  const [card, setCard] = useState<'brush' | 'swap' | null>(null)
   const [swap, setSwap] = useState<{ from: string; to: string } | null>(null)
   const [saving, setSaving] = useState(false)
   const fitCell = Math.floor(Math.min(document.documentElement.clientWidth - 40, 900) / (Math.max(cols, rows) + 2))
@@ -98,7 +100,6 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
     if (s?.changed) setHistory((h) => [...h.slice(-UNDO_DEPTH + 1), s.before])
   }
 
-  const otherCode = other.toUpperCase().trim().replace(/^([A-Z]+)0+(\d)/, '$1$2')
   const swapCount = swap ? cells.filter((c) => c === swap.from).length : 0
   const doSwap = () => {
     if (!swap || swap.from === swap.to || !(swap.to in CATALOGUE)) return
@@ -172,7 +173,7 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
         >
           色号
         </button>
-        <div className="zoom">
+        <div className="zoombar">
           <button className="link" aria-label="缩小" onClick={() => setCell(Math.max(MIN_CELL, cell - 2))}>
             −
           </button>
@@ -193,17 +194,8 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
           <span className="swatch" style={{ background: codeColour(code) }} />
           <b>{code}</b>
           <span className="sub">{tool === 'move' ? '选"画笔"后在图上点或拖' : tool === 'eraser' ? '点格子变成空格' : tool === 'picker' ? '点一格取它的色号' : '点或拖动涂色'}</span>
-          <input className="codeinput" placeholder="其他色号" value={other} onChange={(e) => setOther(e.target.value)} aria-label="其他色号" />
-          <button
-            className="link"
-            disabled={!(otherCode in CATALOGUE)}
-            onClick={() => {
-              setCode(otherCode)
-              setOther('')
-              setTool('brush')
-            }}
-          >
-            用这个
+          <button className="chip" onClick={() => setCard('brush')}>
+            色卡
           </button>
         </div>
         <div className="beadchips">
@@ -238,10 +230,15 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
                 ))}
               </select>
             </label>
-            <label className="field">
+            <div className="field">
               <span>全部换成（任意 MARD 色号）</span>
-              <input value={swap.to} onChange={(e) => setSwap({ ...swap, to: e.target.value.toUpperCase().trim().replace(/^([A-Z]+)0+(\d)/, '$1$2') })} />
-            </label>
+              <div className="row">
+                <input value={swap.to} onChange={(e) => setSwap({ ...swap, to: e.target.value.toUpperCase().trim().replace(/^([A-Z]+)0+(\d)/, '$1$2') })} aria-label="换成的色号" />
+                <button className="chip" onClick={() => setCard('swap')}>
+                  从色卡选
+                </button>
+              </div>
+            </div>
             {swap.to && !(swap.to in CATALOGUE) && <p className="sub bad">「{swap.to}」不是 MARD 色号</p>}
             {swap.to in CATALOGUE && swap.from !== swap.to && (
               <p className="hint">
@@ -260,6 +257,22 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
             </div>
           </div>
         </div>
+      )}
+      {/* above the swap sheet when opened from it */}
+      {card && (
+        <ColourCard
+          title={card === 'brush' ? '选画笔颜色' : `把 ${swap?.from} 换成…`}
+          near={card === 'brush' ? code : swap?.from}
+          value={card === 'brush' ? code : swap?.to}
+          onPick={(c) => {
+            if (card === 'brush') {
+              setCode(c)
+              setTool('brush')
+            } else if (swap) setSwap({ ...swap, to: c })
+            setCard(null)
+          }}
+          onClose={() => setCard(null)}
+        />
       )}
     </div>
   )

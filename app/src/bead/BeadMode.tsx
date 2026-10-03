@@ -124,7 +124,7 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
         >
           色号
         </button>
-        <div className="zoom">
+        <div className="zoombar">
           <button className="link" aria-label="缩小" onClick={() => setCell(Math.max(MIN_CELL, cell - 2))}>
             −
           </button>

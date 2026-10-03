@@ -1110,18 +1110,18 @@ img.boardview {
   margin: 0 auto;
   padding: 6px 16px;
 }
-.beadtools .zoom {
+.beadtools .zoombar {
   display: flex;
   flex: 1;
   min-width: 160px;
   align-items: center;
   gap: 4px;
 }
-.beadtools .zoom input {
+.beadtools .zoombar input {
   flex: 1;
   accent-color: var(--accent);
 }
-.beadtools .zoom .link {
+.beadtools .zoombar .link {
   min-width: 32px;
   font-size: 20px;
 }
@@ -1177,4 +1177,43 @@ img.boardview {
 }
 .beadchips .chip.done {
   opacity: 0.5;
+}
+
+/* ---------------------------------------------------------------- colour card */
+
+.colourcard {
+  align-items: stretch;
+}
+.colourcard > .row {
+  justify-content: space-between;
+}
+.colourcard h2 {
+  margin: 0;
+}
+.colourcard section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.swatchgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
+  gap: 6px;
+}
+.bead-swatch {
+  aspect-ratio: 1;
+  padding: 0;
+  border: 0.5px solid var(--line);
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.bead-swatch.on {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+.editor .sheet .field .row input {
+  flex: 1;
+  min-width: 0;
 }
