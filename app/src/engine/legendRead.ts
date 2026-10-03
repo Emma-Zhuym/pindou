@@ -5,7 +5,7 @@
 //     else (a vision model, or the person). Codes are matched to the board's colours by catalogue
 //     colour, local swatches and, above all, the printed counts.
 // Both return groups in the shape the review screens use: one group per code, cells pointing at it.
-import { stack } from './cells'
+import { CORE, INK, stack, unit } from './cells'
 import { CATALOGUE, type Rgb, type TextRenderer } from './glyphs'
 import type { Raster } from './grid'
 import { findLegend } from './legendArea'
@@ -31,6 +31,11 @@ export interface LegendEntry {
 }
 
 const NEAR = 30
+const LOOK_ALIKE = 60 // colours this much further than a cell's nearest still compete on the printed code
+const LOOK_COLOUR = 120 // colour distance worth one unit of label likeness
+const NO_CODE = 0.35 // below this likeness to every code, a cell prints none
+const TINTED_GAP = 0.05 // another code's print fitting this much better makes the colour suspect
+const TINTED_COLOUR = 500 // ...and then colour weighs this little
 const MAX_SWATCHES = 120
 const dist = (r: number, g: number, b: number, c: Rgb) => Math.abs(r - c.r) + Math.abs(g - c.g) + Math.abs(b - c.b)
 
@@ -58,6 +63,74 @@ function nearest(rec: Recognition, colours: Rgb[]): { assign: Int16Array; covera
   return { assign, coverage: beads ? near / beads : 0 }
 }
 
+/**
+ * Look-alike colours (several greys, several blues) blur together under JPEG noise, but every cell
+ * also prints its code. Each code's look is learnt from its surest cells (the stack of those
+ * closest to its colour); then every cell takes the code whose look and colour together fit it
+ * best among the colours near its own. Learnt from the chart itself, so no font is assumed.
+ */
+function refineByLabels(rec: Recognition, colours: Rgb[], assign: Int16Array): Int16Array {
+  const { fill, share, ink } = rec.cells
+  const G = colours.length
+  const cd = (i: number, g: number) => dist(fill[i * 3], fill[i * 3 + 1], fill[i * 3 + 2], colours[g])
+  const members: number[][] = colours.map(() => [])
+  assign.forEach((g, i) => {
+    if (g >= 0 && share[i] > 0.06) members[g].push(i)
+  })
+  const looks = members.map((m, g) => {
+    if (m.length < 3) return null
+    const sure = [...m].sort((a, b) => cd(a, g) - cd(b, g)).slice(0, Math.max(3, Math.min(400, Math.ceil(m.length / 2))))
+    return unit(stack(rec.cells, sure))
+  })
+  const out = Int16Array.from(assign)
+  const v = new Float32Array(CORE * CORE)
+  // A chart that leaves cells empty prints a code in every bead, so a cell with no code in it is
+  // empty, whatever colour a watermark gave it.
+  const gaps = rec.empty.some((e) => e === 1)
+  for (let i = 0; i < assign.length; i++) {
+    if (assign[i] < 0) continue
+    if (share[i] <= 0.06) {
+      if (gaps) out[i] = -1
+      continue
+    }
+    unit(ink, 1 / 255, v, i * INK * INK)
+    const like = (g: number) => {
+      const t = looks[g]!
+      let c = 0
+      for (let k = 0; k < t.length; k++) c += t[k] * v[k]
+      return c
+    }
+    const own = looks[assign[i]] ? like(assign[i]) : 1
+    let nearest = Infinity
+    for (let g = 0; g < G; g++) nearest = Math.min(nearest, cd(i, g))
+    // Usually only colours near the cell's own compete. When another code's print fits the cell
+    // clearly better than its colour's code, the colour itself is suspect (a watermark tints the
+    // cell), so every code competes on its look, colour counting little.
+    let bestLook = -Infinity
+    for (let g = 0; g < G; g++) if (looks[g]) bestLook = Math.max(bestLook, like(g))
+    if (gaps && bestLook < NO_CODE) {
+      out[i] = -1
+      continue
+    }
+    const tinted = bestLook - own > TINTED_GAP
+    const pool: number[] = []
+    for (let g = 0; g < G; g++) if (looks[g] && (tinted || cd(i, g) < nearest + LOOK_ALIKE)) pool.push(g)
+    // a near code without a learnt look cannot be compared fairly: leave the cell to colour
+    if (pool.length < 2 || (!tinted && pool.length < [...Array(G).keys()].filter((g) => cd(i, g) < nearest + LOOK_ALIKE).length)) continue
+    let best = assign[i]
+    let top = -Infinity
+    for (const g of pool) {
+      const sc = like(g) - cd(i, g) / (tinted ? TINTED_COLOUR : LOOK_COLOUR)
+      if (sc > top) {
+        top = sc
+        best = g
+      }
+    }
+    out[i] = best
+  }
+  return out
+}
+
 function groupsFrom(rec: Recognition, codes: string[], colours: Rgb[], assign: Int16Array): Group[] {
   const members: number[][] = codes.map(() => [])
   assign.forEach((g, i) => {
@@ -77,10 +150,10 @@ function merge(rec: Recognition, codes: string[], colours: Rgb[], unsure: boolea
     }
     return first.get(c)!
   })
-  const { assign: raw, coverage } = nearest(rec, colours)
-  const assign = raw.map((k) => (k < 0 ? -1 : to[k]))
   const names = keep.map((k) => codes[k])
   const refs = keep.map((k) => colours[k])
+  const { assign: raw, coverage } = nearest(rec, colours)
+  const assign = refineByLabels(rec, refs, raw.map((k) => (k < 0 ? -1 : to[k])))
   return { groups: groupsFrom(rec, names, refs, assign), assign, coverage, unsureName: keep.map((k) => unsure[k]) }
 }
 
@@ -165,6 +238,7 @@ export function fitList(rec: Recognition, list: LegendEntry[], local?: Reading |
     assign = assign.map((g) => (g < 0 ? -1 : codeOf[g]))
     centres = codes.map((_, k) => centres[order[k]])
   }
+  assign = refineByLabels(rec, centres, assign)
   const coverage = nearest(rec, centres).coverage
   const named = new Set(local?.groups.map((g) => g.code))
   return { groups: groupsFrom(rec, codes, centres, assign), assign, coverage, unsureName: codes.map((c) => !named.has(c)), swatches: local?.swatches ?? [] }
