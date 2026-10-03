@@ -4,6 +4,8 @@ import { CATALOGUE, CODES } from '../engine/glyphs'
 import { codeColour, codeOrder } from '../shared'
 
 const series = (code: string) => /^[A-Z]+/.exec(code)?.[0] ?? ''
+/** the standard 221-colour set (A to H, M) plus the clear L1: what a box of MARD beads holds */
+const STANDARD = (code: string) => /^[A-HM]\d+$/.test(code) || code === 'L1'
 const ORDERED = [...CODES].sort(codeOrder)
 
 /** sRGB to CIE Lab (D65), where distance follows what the eye sees. */
@@ -34,28 +36,30 @@ function difference(a: string, b: string): number {
  */
 export function ColourCard({ title, near, value, onPick, onClose }: { title: string; near?: string; value?: string; onPick: (code: string) => void; onClose: () => void }) {
   const [query, setQuery] = useState('')
+  const [all, setAll] = useState(false)
+  const shown = (c: string) => all || STANDARD(c)
   const q = query.toUpperCase().trim()
   const similar = useMemo(
     () =>
       near && near in CATALOGUE
-        ? ORDERED.filter((c) => c !== near)
+        ? ORDERED.filter((c) => c !== near && shown(c))
             .map((c) => [c, difference(near, c)] as const)
             .sort((a, b) => a[1] - b[1])
             .slice(0, 12)
             .map(([c]) => c)
         : [],
-    [near],
+    [near, all], // eslint-disable-line react-hooks/exhaustive-deps
   )
   const groups = useMemo(() => {
     const m = new Map<string, string[]>()
     for (const c of ORDERED) {
-      if (q && !c.startsWith(q)) continue
+      if ((q && !c.startsWith(q)) || !shown(c)) continue
       const s = series(c)
       if (!m.has(s)) m.set(s, [])
       m.get(s)!.push(c)
     }
     return [...m]
-  }, [q])
+  }, [q, all]) // eslint-disable-line react-hooks/exhaustive-deps
   const swatch = (c: string) => (
     <button key={c} className={`bead-swatch${c === value ? ' on' : ''}`} style={{ background: codeColour(c), color: inkOn(c) }} onClick={() => onPick(c)} title={c}>
       {c}
@@ -71,6 +75,14 @@ export function ColourCard({ title, near, value, onPick, onClose }: { title: str
           </button>
         </div>
         <input className="search" placeholder="搜索色号，如 B1 或 H" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="搜索色号" />
+        <div className="segmented small" role="radiogroup" aria-label="色号范围">
+          <button role="radio" aria-checked={!all} aria-selected={!all} onClick={() => setAll(false)}>
+            221 色 + L1
+          </button>
+          <button role="radio" aria-checked={all} aria-selected={all} onClick={() => setAll(true)}>
+            全部 MARD
+          </button>
+        </div>
         {similar.length > 0 && !q && (
           <section>
             <span className="sub">和 {near} 相近</span>
@@ -79,9 +91,7 @@ export function ColourCard({ title, near, value, onPick, onClose }: { title: str
         )}
         {groups.map(([s, codes]) => (
           <section key={s}>
-            <span className="sub">
-              {s} 系列
-            </span>
+            <span className="sub">{s === 'L' ? 'L1 透明' : `${s} 系列`}</span>
             <div className="swatchgrid">{codes.map(swatch)}</div>
           </section>
         ))}

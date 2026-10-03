@@ -19,6 +19,8 @@ export const CATALOGUE: Record<string, Rgb> = {}
 for (const [hex, v] of Object.entries(mard as Record<string, { MARD: string }>)) {
   CATALOGUE[normalise(v.MARD)] = { r: parseInt(hex.slice(1, 3), 16), g: parseInt(hex.slice(3, 5), 16), b: parseInt(hex.slice(5, 7), 16) }
 }
+// L1, the clear bead, is sold separately and missing from that table; charts draw it near white.
+CATALOGUE.L1 ??= { r: 236, g: 240, b: 243 }
 export const CODES = Object.keys(CATALOGUE).sort()
 
 /** Draws `text` centred in a box*box square and returns coverage 0..1. Canvas-backed; injected so
