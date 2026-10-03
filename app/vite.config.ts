@@ -26,4 +26,6 @@ function xhsRelay(): Plugin {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), xhsRelay()],
+  // reachable from a phone on the same network (http://<this Mac's address>:5173)
+  server: { host: true },
 })
