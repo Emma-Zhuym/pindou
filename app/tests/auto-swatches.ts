@@ -100,10 +100,10 @@ const PAIRS: [
     string,
     string
 ][] = [
-    ['tree', 'samples/tree-52x64.jpg', 'IMG_0687.JPG'],
-    ['dog', 'samples/dog-104x104.jpg', 'IMG_0728.jpg'],
-    ['landscape', 'samples/landscape-84x84.jpg', 'IMG_0643.JPG'],
-    ['portrait', 'samples/portrait-50x70.jpg', 'IMG_0697.JPG'],
+    ['tree', 'samples/tree-52x64.jpg', 'samples/originals/tree-52x64.jpg'],
+    ['dog', 'samples/dog-104x104.jpg', 'samples/originals/dog-104x104.jpg'],
+    ['landscape', 'samples/landscape-84x84.jpg', 'samples/originals/landscape-84x84.jpg'],
+    ['portrait', 'samples/portrait-50x70.jpg', 'samples/originals/portrait-50x70.jpg'],
 ];
 // annotations used only AFTER detection, for localisation evaluation and oracle naming.
 import { findLegend } from '../src/engine/legendArea';
