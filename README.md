@@ -1,3 +1,5 @@
+<img src="app/public/icon-192.png" width="96" alt="" align="right">
+
 # Pindou · 拼豆图纸
 
 把小红书上的拼豆图纸变成可以直接拿来拼的数字图纸：自动识别格子和 MARD 色号，拼的时候有豆板辅助线，库存、用量和补豆清单也能一起管。
@@ -72,5 +74,6 @@ pnpm lint
 
 - 本项目以 [AGPL-3.0](LICENSE) 发布。
 - MARD 色卡数据来自 [Zippland/perler-beads](https://github.com/Zippland/perler-beads)（AGPL-3.0）。
+- 图标是用代码一笔一笔画的蜡笔画（`app/tools/crayon-icon.ts`）。
 - 屏幕上的颜色只是近似，以实物豆子为准。
 - 本项目是个人项目，与 MARD、小红书没有关系。
