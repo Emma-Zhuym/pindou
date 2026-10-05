@@ -1618,7 +1618,7 @@ img.boardview {
   gap: 10px;
   max-width: 960px;
   margin: 0 auto;
-  padding: calc(10px + env(safe-area-inset-top)) 16px 8px;
+  padding: calc(10px + env(safe-area-inset-top)) 16px 6px;
 }
 .beadname {
   display: flex;
@@ -1635,9 +1635,9 @@ img.boardview {
 .beadname .name {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
   max-width: 100%;
-  font-size: 17px;
+  font-size: 22px;
 }
 .beadname .name b {
   overflow: hidden;
@@ -1652,9 +1652,14 @@ img.boardview {
 .beadname .chev.up {
   transform: rotate(180deg);
 }
-.beadname .sub {
+/* progress, a whole row of its own under the name and the timer */
+.beadprogress {
+  max-width: 960px;
+  margin: -2px auto 0;
+  padding: 0 16px 10px;
+  font-size: 14px;
+  text-align: center;
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
 }
 .timer {
   display: inline-flex;

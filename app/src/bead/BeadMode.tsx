@@ -140,15 +140,15 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
                 <Icon d={ICONS.chevron} size={16} />
               </span>
             </span>
-            <span className="sub">
-              {done.length}/{counts.length} 色 · {placed}/{total} 颗{board ? ` · ${board} 板` : ''}
-            </span>
           </button>
           <button className={running ? 'timer primary small' : 'timer small glass'} aria-label={running ? '暂停计时' : '开始计时'} onClick={startStop}>
             <Icon d={running ? ICONS.pause : ICONS.timer} size={18} />
             {clock(seconds)}
           </button>
         </header>
+        <p className="beadprogress sub">
+          已完成 {done.length}/{counts.length} 色 · {placed}/{total} 颗{board ? ` · ${board} 板` : ''} · {cols}×{rows}
+        </p>
 
         {menu && (
           <>

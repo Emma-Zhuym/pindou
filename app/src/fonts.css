@@ -60,3 +60,8 @@
 [data-font='pixel'] .primary {
   font-weight: 400;
 }
+[data-font='pixel'] .beadname b {
+  font-family: 'Fusion Pixel', 'PingFang SC', sans-serif;
+  font-size: 24px;
+  font-weight: 400;
+}
