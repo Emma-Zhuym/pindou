@@ -2,7 +2,7 @@
 // A web page cannot do this itself: the note page refuses cross-site reads and a page cannot set
 // the phone User-Agent the note page needs. This step runs where it can (the dev server now, a
 // small worker later); the images themselves allow cross-site reads, so the app downloads them.
-// Same steps as research/xhs-probe.mjs (sections 17-18 of ROADMAP). No login, no cookies.
+// Same steps as research/xhs-probe.mjs. No login, no cookies.
 
 import { type Note, parseNote } from '../src/xhsNote.ts'
 
