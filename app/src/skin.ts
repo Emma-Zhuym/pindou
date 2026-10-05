@@ -1,14 +1,16 @@
 // The app's look and its type, both kept on this device.
-//   look: iOS (glass over a quiet background) or paper (milky glass on off-white paper)
+//   look: iOS (glass over a quiet background), paper (milky glass on off-white paper) or sketch
+//     (drawn on fibrous paper: pencil frames, crayon highlights; glass only for floating bars)
 //   font: follows the look by default; or the system face, a typewriter pairing (Courier Prime with
 //     LXGW WenKai Mono, from jsDelivr, split so only the characters on screen download), or the
 //     pixel face bundled in src/fonts.
 
-export type Skin = 'ios' | 'paper'
+export type Skin = 'ios' | 'paper' | 'sketch'
 export type Font = 'auto' | 'system' | 'typewriter' | 'pixel'
 export const SKINS: [Skin, string][] = [
   ['ios', 'iOS'],
   ['paper', '纸张'],
+  ['sketch', '手绘'],
 ]
 export const FONTS: [Font, string][] = [
   ['auto', '跟随外观'],
@@ -39,14 +41,17 @@ const write = (key: string, value: string) => {
   }
 }
 
-export const loadSkin = (): Skin => (read(SKIN_KEY) === 'paper' ? 'paper' : 'ios')
+export const loadSkin = (): Skin => {
+  const s = read(SKIN_KEY)
+  return s === 'paper' || s === 'sketch' ? s : 'ios'
+}
 export const loadFont = (): Font => {
   const f = read(FONT_KEY)
   return f === 'system' || f === 'typewriter' || f === 'pixel' ? f : 'auto'
 }
 
 /** The font actually used: "follow the look" picks the look's own. */
-export const fontFor = (skin: Skin, font: Font): Exclude<Font, 'auto'> => (font !== 'auto' ? font : skin === 'paper' ? 'typewriter' : 'system')
+export const fontFor = (skin: Skin, font: Font): Exclude<Font, 'auto'> => (font !== 'auto' ? font : skin === 'ios' ? 'system' : 'typewriter')
 
 export function applyLook(skin = loadSkin(), font = loadFont()) {
   const used = fontFor(skin, font)
@@ -62,7 +67,7 @@ export function applyLook(skin = loadSkin(), font = loadFont()) {
     }
   }
   // the bar colour the phone draws around the app
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', skin === 'paper' ? '#f3f0ea' : '#f3f4f2')
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', skin === 'paper' ? '#f3f0ea' : skin === 'sketch' ? '#f2efe8' : '#f3f4f2')
 }
 
 export function saveSkin(skin: Skin) {

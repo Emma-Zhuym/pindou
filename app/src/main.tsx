@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import App from './App.tsx'
 import { applyLook } from './skin'
 import './skin-paper.css'
+import './skin-sketch.css'
 import './fonts.css'
 
 applyLook()
