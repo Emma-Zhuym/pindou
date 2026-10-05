@@ -7,15 +7,20 @@ const SHORTCUT_NAME = '拼豆读笔记'
 /** the signed Shortcut itself, published with the app */
 export const SHORTCUT_FILE = `${import.meta.env.BASE_URL}拼豆读笔记.shortcut`
 
+function extractExternalUrl(text: string): string | undefined {
+  return /https?:\/\/[^\s，。]+/.exec(text)?.[0]
+}
+
 /**
  * Import from a Xiaohongshu note: the page an iOS Shortcut fetched and copied, read here; or, on
  * this Mac's dev server, a share link read by the relay (relay/xhs.ts). The person picks the chart
  * (normal or mirrored, not the cover), and the full-resolution image is downloaded straight from
  * the image server.
  */
-export function LinkImport({ disabled, onPick }: { disabled: boolean; onPick: (image: Blob, title: string) => void }) {
+export function LinkImport({ disabled, onPick }: { disabled: boolean; onPick: (image: Blob, title: string, sourceUrl?: string) => void }) {
   const [text, setText] = useState('')
   const [note, setNote] = useState<{ title: string; images: NoteImage[] } | null>(null)
+  const [sourceUrl, setSourceUrl] = useState('')
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   // gone to the Shortcuts app and come back: the result is waiting on the clipboard
@@ -28,8 +33,16 @@ export function LinkImport({ disabled, onPick }: { disabled: boolean; onPick: (i
 
   // Runs the Shortcut on the link typed here, else on the clipboard (the link copied in
   // Xiaohongshu). It copies the note page and shows a notification; coming back, one tap pastes it.
-  function runShortcut() {
-    const link = /https?:\/\/[^\s，。]+/.exec(text)?.[0]
+  async function runShortcut() {
+    let link = extractExternalUrl(text)
+    if (!link) {
+      try {
+        link = extractExternalUrl(await navigator.clipboard.readText())
+      } catch {
+        // The Shortcut can still read the clipboard; the link is simply unavailable to save.
+      }
+    }
+    if (link) setSourceUrl(link)
     const input = link ? `text&text=${encodeURIComponent(link)}` : 'clipboard'
     setError('')
     setAway('gone')
@@ -39,6 +52,8 @@ export function LinkImport({ disabled, onPick }: { disabled: boolean; onPick: (i
   async function read(input = text) {
     setError('')
     setNote(null)
+    // A Shortcut result is a note page, so keep the link recorded by runShortcut().
+    if (!isNotePage(input)) setSourceUrl(extractExternalUrl(input) ?? '')
     if (isNotePage(input)) {
       try {
         setNote(parseNote(input))
@@ -94,7 +109,7 @@ export function LinkImport({ disabled, onPick }: { disabled: boolean; onPick: (i
     try {
       const res = await fetch(im.url)
       if (!res.ok) throw new Error(`下载失败（${res.status}）`)
-      onPick(await res.blob(), note?.title ?? '')
+      onPick(await res.blob(), note?.title ?? '', sourceUrl || undefined)
       setNote(null)
       setText('')
     } catch (e) {

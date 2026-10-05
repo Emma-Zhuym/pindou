@@ -310,6 +310,11 @@ function ChartDetail(props: { chart: Chart; onBack: () => void; onEdit: () => vo
         onBlur={() => title.trim() && title.trim() !== chart.title && update({ title: title.trim() })}
         aria-label="图纸名称"
       />
+      {chart.sourceUrl && (
+        <a className="chartsource sub" href={chart.sourceUrl} target="_blank" rel="noreferrer">
+          来源链接：{chart.sourceUrl}
+        </a>
+      )}
       <div className="segmented" role="radiogroup" aria-label="状态">
         {(Object.keys(STATUS_LABEL) as Status[]).map((s) => (
           <button key={s} role="radio" aria-checked={chart.status === s} aria-selected={chart.status === s} onClick={() => setStatus(s)}>

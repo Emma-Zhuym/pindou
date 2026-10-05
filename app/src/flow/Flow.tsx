@@ -1,23 +1,24 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { type AiLegend, type AiSettings, loadAiSettings, readCellsWithAi, readLegendWithAi } from '../ai'
+import { type AiLegend, type AiRequestEvent, type AiRequestPhase, type AiSettings, CELLS_PER_REQUEST, loadAiSettings, readCellsWithAi, readLegendWithAi } from '../ai'
 import { loadImage, paintLabel, renderText, toRaster } from '../browser'
 import { CATALOGUE } from '../engine/glyphs'
 import { type Extent, findBoard, findGrid, type Grid, type Raster } from '../engine/grid'
-import { findLegend, outsideBoard, type Rect } from '../engine/legendArea'
-import { applyReading, fitList, needsHelp, type Reading, readLocally } from '../engine/legendRead'
+import { outsideBoard, type Rect } from '../engine/legendArea'
+import { applyReading, fitList, readLocally } from '../engine/legendRead'
 import { stack } from '../engine/cells'
 import { recognise, type Recognition } from '../engine/recognize'
 import { Icon } from '../Icon'
 import { LinkImport } from './LinkImport'
-import { boardThumb, codeOrder, copyText, css, GREY, ICONS, newId } from '../shared'
+import { confirmedEntries, locateBoard, locateLegend, type BoardDraft } from './stages'
+import { boardThumb, codeOrder, copyText, css, drawBoard, GREY, ICONS, newId } from '../shared'
 import { type Chart, countCells, ENGINE_VERSION, putChart, type Status, STATUS_LABEL } from '../store'
 
 type Step = 'import' | 'codes' | 'wall' | 'list'
 const STEPS: [Step, string][] = [
-  ['import', '导入'],
-  ['codes', '色号'],
-  ['wall', '核对'],
-  ['list', '清单'],
+  ['import', '① 网格'],
+  ['codes', '② 色号'],
+  ['wall', '③ 格子'],
+  ['list', '④ 对比'],
 ]
 const SAMPLES = ['tree-52x64', 'landscape-84x84', 'portrait-50x70', 'dog-104x104']
 
@@ -25,6 +26,23 @@ const SAMPLES = ['tree-52x64', 'landscape-84x84', 'portrait-50x70', 'dog-104x104
 const MAX_CELLS_CHECKED = 300 // cells shown to the model per run (three requests)
 const COUNT_AGREEMENT = 0.98 // cells counted per code vs the printed legend counts
 const UNSURE_SHARE = 0.05 // cells the reading is unsure of
+const AI_CELL_COLOUR_MAX = 120 // a cell-level AI correction must still be near a known colour
+const AI_CELL_COLOUR_MARGIN = 45 // ...and not much farther than the current assignment
+
+const AI_PHASE_LABEL: Record<AiRequestPhase, string> = {
+  legend: '图例',
+  'group-names': '组名',
+  'cell-check': '格子',
+}
+
+/** Keep the user's note useful without hiding how many paid requests the run used. */
+function formatAiCalls(calls: AiRequestEvent[]): string {
+  if (!calls.length) return ''
+  const byPhase = new Map<AiRequestPhase, AiRequestEvent[]>()
+  calls.forEach((call) => byPhase.set(call.phase, [...(byPhase.get(call.phase) ?? []), call]))
+  const parts = [...byPhase].map(([phase, events]) => `${AI_PHASE_LABEL[phase]} ${events.length} 次/${events.reduce((n, e) => n + e.items, 0)} 项`)
+  return `；本次 AI 实际调用 ${calls.length} 次（${parts.join('、')}）`
+}
 
 /**
  * Recognising a new chart, or reopening a saved one to correct it. Full screen, over the tabs.
@@ -37,17 +55,19 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
     window.scrollTo(0, 0)
   }
   const [file, setFile] = useState<Blob | null>(chart?.image ?? null)
+  const [sourceUrl, setSourceUrl] = useState(chart?.sourceUrl ?? '')
   const [img, setImg] = useState<HTMLImageElement | null>(null)
+  const [draft, setDraft] = useState<BoardDraft | null>(null)
+  const [boardPending, setBoardPending] = useState(false)
   const [rec, setRec] = useState<Recognition | null>(null)
-  // before the legend reading replaced its groups, and the local reading: AI and board changes start from these
-  const [base, setBase] = useState<Recognition | null>(null)
-  const [local, setLocal] = useState<Reading | null>(null)
   const [readNote, setReadNote] = useState('')
   // a note title from link import, offered as the chart's name
   const [suggested, setSuggested] = useState('')
-  // what the vision model read off the legend, kept so a board change does not ask again
   const [aiLegend, setAiLegend] = useState<AiLegend | null>(null)
-  const [localUnsure, setLocalUnsure] = useState(false)
+  const [legendLoaded, setLegendLoaded] = useState(!!chart)
+  const [legendConfirmed, setLegendConfirmed] = useState(!!chart)
+  const [cellsReviewed, setCellsReviewed] = useState(false)
+  const [aiCalls, setAiCalls] = useState<AiRequestEvent[]>([])
   const [names, setNamesState] = useState<string[]>([])
   const [assign, setAssignState] = useState<Int16Array>(new Int16Array(0))
   const [legend, setLegendState] = useState<Record<string, number>>({})
@@ -60,14 +80,41 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
     set(v)
     setDirty(true)
   }
-  const setNames = edited(setNamesState)
-  const setAssign = edited(setAssignState)
-  const setLegend = edited(setLegendState)
+  const setNames = (v: string[]) => {
+    setNamesState(v)
+    setLegendConfirmed(false)
+    setCellsReviewed(false)
+    setDirty(true)
+  }
+  const setAssign = (v: Int16Array) => {
+    setAssignState(v)
+    setCellsReviewed(false)
+    setDirty(true)
+  }
+  const setLegend = (v: Record<string, number>) => {
+    setLegendState(v)
+    setLegendConfirmed(false)
+    setCellsReviewed(false)
+    setDirty(true)
+  }
   const setLegendRect = edited(setLegendRectState)
+  const trace = (event: AiRequestEvent) => setAiCalls((calls) => [...calls, event])
 
-  async function open(src: Blob | string, saved?: Chart, board?: { grid: Grid; extent: Extent }, known?: AiLegend | null) {
+  async function open(src: Blob | string, saved?: Chart) {
     setError('')
-    setBusy(saved ? '正在打开…' : '正在识别…')
+    setBusy(saved ? '正在打开…' : '正在定位网格…')
+    setRec(null)
+    setDraft(null)
+    setBoardPending(false)
+    setLegendLoaded(!!saved)
+    setLegendConfirmed(!!saved)
+    setCellsReviewed(false)
+    setAiCalls([])
+    setAiLegend(null)
+    setNamesState([])
+    setAssignState(new Int16Array(0))
+    setLegendState({})
+    setReadNote('')
     try {
       const blob = typeof src === 'string' ? await (await fetch(src)).blob() : src
       const image = await loadImage(blob)
@@ -75,69 +122,19 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
       await new Promise((r) => setTimeout(r, 30))
       const raster = toRaster(image)
       // a saved chart's cells only line up with the board it was saved on
-      const where = board ?? (saved ? (saved.board ?? findSavedBoard(raster, saved)) : undefined)
-      const first = recognise(raster, renderText, undefined, where)
-      // local first: swatches found and named on the chart itself
-      const localReading = readLocally(raster, first, renderText)
-      const rect = saved ? saved.legendRect : (findLegend(raster, first) ?? outsideBoard(first, raster.width, raster.height))
-      let reading = localReading
-      let got: AiLegend | null = known ?? null
-      let note = !localReading ? '没有在图上找到图例色块' : needsHelp(localReading) ? '本地读图例没把握' : '已按图例读出色号'
-      // With a key set, the model reads every new legend: its codes and printed counts check the
-      // local reading (about $0.001 a chart). Without one, only the local reading.
-      if (!saved && !got) {
-        const ai = loadAiSettings()
-        if (ai.key && ai.model && rect) {
-          setBusy('AI 正在读图例…')
-          try {
-            got = await readLegendWithAi(image, rect, ai)
-          } catch (e) {
-            note += `；AI 读取失败：${e instanceof Error ? e.message : String(e)}`
-          }
-        } else if (needsHelp(localReading)) note += '。可以在「色号」页让 AI 读图例（需先在设置里填 Key），或手动核对'
-      }
-      if (got) {
-        reading = fitList(first, got.entries, localReading, renderText)
-        note = `AI 读出图例上 ${got.entries.length} 个色号，已按颜色和颗数对到格子上`
-      }
-      const printed: Record<string, number> = got ? Object.fromEntries(got.entries.filter((e) => e.count !== undefined).map((e) => [e.code, e.count!])) : {}
-      let result = reading ? applyReading(first, reading) : first
-      if (!result.groups.length && !saved) throw new Error('没有识别出带色号的格子，这张图可能不是带色号的图纸')
-      let n = result.groups.map((g) => g.code)
-      let a = Int16Array.from(result.assign)
-      // with a key set, the model also reads the cells the recogniser is unsure of
-      const ai = loadAiSettings()
-      // with the legend read by the model, the model also names each group from a few of its cells:
-      // colour and counts alone mix up codes of near the same colour
-      if (!saved && got && ai.key && ai.model) {
-        setBusy('AI 正在核对每种颜色的色号…')
-        try {
-          const named = await nameGroupsWithAi(image, result, n, a, ai)
-          if (named) {
-            n = named.names
-            a = named.assign
-            if (named.renamed) note += `；AI 看了每种颜色的几个格子，改正了 ${named.renamed} 个色号`
-          }
-        } catch (e) {
-          note += `；AI 核对色号失败：${e instanceof Error ? e.message : String(e)}`
-        }
-      }
-      if (!saved && ai.key && ai.model) {
-        setBusy('AI 正在核对没把握的格子…')
-        try {
-          const checked = await checkCells(image, result, n, a, ai)
-          if (checked) {
-            n = checked.names
-            a = checked.assign
-            result = checked.rec
-            note += `；AI 核对了 ${checked.asked} 个没把握的格子，改了 ${checked.changed} 格`
-          }
-        } catch (e) {
-          note += `；AI 核对格子失败：${e instanceof Error ? e.message : String(e)}`
-        }
-      }
+      const where = saved ? (saved.board ?? findSavedBoard(raster, saved)) : undefined
+      const located = locateBoard(raster, where)
+      let result: Recognition | null = null
+      let n: string[] = []
+      let a = new Int16Array(0)
       if (saved) {
-        const sameRun = saved.edit.engine === ENGINE_VERSION && saved.edit.assign.length === result.assign.length && saved.edit.names.length >= result.groups.length
+        const first = recognise(raster, renderText, undefined, where)
+        const localReading = readLocally(raster, first, renderText)
+        const palette = [...new Set([...saved.edit.names, ...Object.keys(saved.legend), ...saved.cells].filter(Boolean))]
+        result = palette.length ? applyReading(first, fitList(first, palette.map((code) => ({ code, count: saved.legend[code] })), localReading, renderText)) : first
+        n = result.groups.map((g) => g.code)
+        a = Int16Array.from(result.assign)
+        const sameRun = saved.edit.engine === ENGINE_VERSION && saved.edit.assign.length === result.assign.length && saved.edit.assign.every((g) => g === -1 || (g >= 0 && g < saved.edit.names.length))
         if (sameRun) {
           n = saved.edit.names
           a = Int16Array.from(saved.edit.assign)
@@ -155,16 +152,12 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
       }
       setFile(blob)
       setImg(image)
-      setBase(first)
-      setLocal(localReading)
+      setDraft(located)
       setRec(result)
-      setReadNote(saved ? '' : note)
-      setAiLegend(got)
-      setLocalUnsure(!got && needsHelp(localReading))
       setNamesState(n)
       setAssignState(a)
-      setLegendState(saved?.legend ?? printed)
-      setLegendRectState(rect)
+      setLegendState(saved?.legend ?? {})
+      setLegendRectState(saved?.legendRect ?? locateLegend(raster, located))
       setDirty(!saved)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -176,44 +169,92 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
   /** Ask the vision model to read the doubtful cells again (from the review page). */
   async function askCells(): Promise<string> {
     if (!img || !rec) return ''
-    const checked = await checkCells(img, rec, names, assign, loadAiSettings())
-    if (!checked) return '没有需要核对的格子'
-    setRec(checked.rec)
-    setNames(checked.names)
-    setAssign(checked.assign)
-    return `AI 核对了 ${checked.asked} 格，改了 ${checked.changed} 格`
+    setBusy('AI 正在核对待确认格子…')
+    const aiCalls: AiRequestEvent[] = []
+    try {
+      const checked = await checkCells(img, rec, names, assign, loadAiSettings(), (event) => { aiCalls.push(event); trace(event) })
+      if (!checked) return '没有需要核对的格子'
+      setRec(checked.rec)
+      setNamesState(checked.names)
+      setAssign(checked.assign)
+      return `AI 核对了 ${checked.asked} 格，改了 ${checked.changed} 格${checked.unread ? `，${checked.unread} 格未读出色号，仍需手动核对` : ''}${checked.vetoed ? `，拦下 ${checked.vetoed} 个颜色不相容的改动` : ''}${formatAiCalls(aiCalls)}`
+    } finally { setBusy('') }
   }
 
-  /** Ask the vision model to read the legend and lay its list onto the board; returns the new names. */
+  /** Read only the legend. Cell classification waits for the user's confirmation. */
   async function askAi(): Promise<string[]> {
-    if (!img || !base) return names
+    if (!img || !draft) return names
     const ai = loadAiSettings()
-    const rect = legendRect ?? outsideBoard(base, img.naturalWidth, img.naturalHeight)
+    const rect = legendRect ?? outsideBoard(draft, img.naturalWidth, img.naturalHeight)
     if (!rect) throw new Error('先框选图例')
-    const got = await readLegendWithAi(img, rect, ai)
-    const list = got.entries
-    const r = applyReading(base, fitList(base, list, local, renderText))
-    setAiLegend(got)
-    setLocalUnsure(false)
-    let next = r.groups.map((g) => g.code)
-    let a = Int16Array.from(r.assign)
-    let note = `AI 读出图例上 ${list.length} 个色号，已按颜色和颗数对到格子上`
+    setBusy('AI 正在读取图例色号和颗数…')
+    setError('')
     try {
-      const named = await nameGroupsWithAi(img, r, next, a, ai)
-      if (named) {
-        next = named.names
-        a = named.assign
-        note += `；看了每种颜色的几个格子，改正了 ${named.renamed} 个色号`
-      }
+      const got = await readLegendWithAi(img, rect, ai, trace)
+      const list = got.entries
+      setAiLegend(got)
+      const next = list.map((e) => e.code)
+      setNames(next)
+      setLegend(Object.fromEntries(list.filter((e) => e.count !== undefined).map((e) => [e.code, e.count!])))
+      setReadNote(`读出 ${list.length} 个色号，请逐项核对色号和颗数。尚未识别格子。`)
+      return next
     } catch (e) {
-      note += `；核对色号失败：${e instanceof Error ? e.message : String(e)}`
+      setError(`图例读取失败：${e instanceof Error ? e.message : String(e)}。可以重读或手动填写。`)
+      throw e
+    } finally { setBusy('') }
+  }
+
+  async function readLegend() {
+    if (boardPending) return
+    setStep('codes')
+    if (legendLoaded) return
+    setLegendLoaded(true)
+    const ai = loadAiSettings()
+    if (!ai.key || !ai.model) {
+      setReadNote('尚未设置 AI，请对照原图手动添加色号和颗数，或设置后再读图例。')
+      return
     }
-    setRec(r)
-    setNames(next)
-    setAssign(a)
-    setLegend({ ...legend, ...Object.fromEntries(list.filter((e) => e.count !== undefined).map((e) => [e.code, e.count!])) })
-    setReadNote(note)
-    return next
+    setBusy('AI 正在读取图例色号和颗数…')
+    setError('')
+    try { await askAi() }
+    catch (e) { setError(`图例读取失败：${e instanceof Error ? e.message : String(e)}。可以重新框选、重读或手动填写。`) }
+    finally { setBusy('') }
+  }
+
+  function changeBoard(extent: Extent) {
+    if (!img || !draft) return
+    const next = locateBoard(toRaster(img), { grid: draft.grid, extent })
+    setDraft(next)
+    setBoardPending(false)
+    setRec(null)
+    setAssignState(new Int16Array(0))
+    setLegendConfirmed(false)
+    setCellsReviewed(false)
+    setDirty(true)
+  }
+
+  async function identifyCells() {
+    if (!img || !draft) return
+    if (legendConfirmed && rec) return setStep('wall')
+    setError('')
+    try {
+      const entries = confirmedEntries(names, legend)
+      setLegendState(Object.fromEntries(entries.filter((e) => e.count !== undefined).map((e) => [e.code, e.count!])))
+      setBusy('色号已确认，正在本机识别每个格子…')
+      await new Promise((r) => setTimeout(r, 30))
+      const raster = toRaster(img)
+      const first = recognise(raster, renderText, undefined, { grid: draft.grid, extent: draft.extent })
+      const localReading = readLocally(raster, first, renderText)
+      const result = applyReading(first, fitList(first, entries, localReading, renderText))
+      setRec(result)
+      setNamesState(result.groups.map((g) => g.code))
+      setAssignState(Int16Array.from(result.assign))
+      setLegendConfirmed(true)
+      setCellsReviewed(false)
+      setDirty(true)
+      setStep('wall')
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    finally { setBusy('') }
   }
 
   useEffect(() => {
@@ -230,11 +271,12 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
   // steps worth checking by hand, with the reason shown on that step
   const review = useMemo(() => {
     const out: Partial<Record<Step, string>> = {}
-    if (!rec) return out
+    if (!draft) return out
     const size = aiLegend?.size
-    if (size && (size.cols !== rec.cells.cols || size.rows !== rec.cells.rows)) {
-      out.import = `图上印着 ${size.cols}×${size.rows}，现在框的是 ${rec.cells.cols}×${rec.cells.rows}，请调整图纸范围`
+    if (size && (size.cols !== draft.cells.cols || size.rows !== draft.cells.rows)) {
+      out.import = `图上印着 ${size.cols}×${size.rows}，现在框的是 ${draft.cells.cols}×${draft.cells.rows}，请调整图纸范围`
     }
+    if (!legendConfirmed || !rec) return out
     const found = [...counts.values()].reduce((a, b) => a + b, 0)
     const printedTotal = aiLegend?.total
     if (printedTotal && found !== printedTotal && !out.import) {
@@ -246,24 +288,26 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
       for (const c of new Set([...printed.map(([c]) => c), ...counts.keys()])) off += Math.abs((legend[c] ?? 0) - (counts.get(c) ?? 0))
       const total = printed.reduce((a, [, n]) => a + n, 0)
       const agree = total ? 1 - off / 2 / total : 1
-      if (agree < COUNT_AGREEMENT) out.codes = `识别颗数和图例只吻合 ${Math.round(agree * 100)}%，请核对色号`
-    } else if (localUnsure) out.codes = '本地读图例没把握，请核对色号（或让 AI 读图例）'
+      if (agree < COUNT_AGREEMENT) out.wall = `识别颗数和已确认图例只吻合 ${Math.round(Math.max(0, agree) * 100)}%，请核对格子`
+    }
     const unsure = rec.unsure.reduce((a, b) => a + b, 0)
-    if (found && unsure / found > UNSURE_SHARE) out.wall = `有 ${unsure} 格程序没把握，请逐格核对`
+    if (found && unsure / found > UNSURE_SHARE) out.wall = [out.wall, `有 ${unsure} 格程序没把握，请逐格核对`].filter(Boolean).join('；')
     return out
-  }, [rec, counts, legend, aiLegend, localUnsure])
+  }, [draft, rec, counts, legend, aiLegend, legendConfirmed])
 
   async function save(meta: { title: string; status: Status; tags: string[] }) {
-    if (!rec || !file) return
+    if (!rec || !file || !legendConfirmed || !cellsReviewed) return
     setSaving(true)
     try {
       const cells = Array.from(assign, (g) => (g >= 0 ? names[g] : ''))
       const now = Date.now()
       const record: Chart = {
+        ...chart,
         id: chart?.id ?? newId(),
         createdAt: chart?.createdAt ?? now,
         updatedAt: now,
         ...meta,
+        sourceUrl: sourceUrl || undefined,
         image: file,
         thumb: await boardThumb(rec.cells.cols, rec.cells.rows, cells),
         cols: rec.cells.cols,
@@ -287,9 +331,10 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
 
   const [asking, setAsking] = useState(false)
   const close = () => {
-    if (!dirty || !rec || window.confirm('这次的识别和修改还没保存，确定离开吗？')) onClose()
+    if (!dirty || !draft || window.confirm('这次的识别和修改还没保存，确定离开吗？')) onClose()
   }
-  const ready = !!(img && rec)
+  const ready = !!(img && draft)
+  const cellsReady = !!(rec && legendConfirmed)
   const steps = chart ? STEPS.filter(([t]) => t !== 'import') : STEPS
 
   return (
@@ -300,50 +345,67 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
         </button>
         <nav className="segmented glass steps" role="tablist" aria-label="步骤">
           {steps.map(([t, label]) => (
-            <button key={t} role="tab" aria-selected={step === t} disabled={t !== 'import' && !ready} onClick={() => setStep(t)} className={review[t] ? 'needs' : undefined} title={review[t]}>
+            <button key={t} role="tab" aria-selected={step === t} disabled={!!busy || (t !== 'import' && boardPending) || (t === 'codes' ? !ready || !legendLoaded : t === 'wall' ? !cellsReady : t === 'list' ? !cellsReady || !cellsReviewed : false)} onClick={() => setStep(t)} className={review[t] ? 'needs' : undefined} title={review[t]}>
               {label}
             </button>
           ))}
         </nav>
-        <button className="primary small" disabled={!ready || saving} onClick={() => setAsking(true)}>
+        <button className="primary small" disabled={!cellsReady || !cellsReviewed || !!busy || saving || step !== 'list'} onClick={() => setAsking(true)}>
           {saving ? '保存中…' : '保存'}
         </button>
       </header>
       <div className="title">
         <h1>{chart?.title ?? '识别新图纸'}</h1>
-        {busy && <span className="sub">{busy}</span>}
+        {busy && <span className="sub" role="status">{busy}</span>}
       </div>
+      <ol className="flowprogress" aria-label="识别进度">
+        <li>网格：{draft ? `已读到 ${draft.cells.cols} × ${draft.cells.rows} 格` : '等待导入图片'}</li>
+        <li>色号：{legendLoaded ? `读到 ${names.filter(Boolean).length} 个${legendConfirmed ? '，已确认' : '，待人工核对'}` : '等待确认网格后读取'}</li>
+        <li>格子：{cellsReady ? `已识别 ${assign.filter((g) => g >= 0).length} 颗${cellsReviewed ? '，已核对' : '，待核对'}` : '等待确认色号和颗数'}</li>
+        <li>对比：{cellsReviewed ? '可以对照原图检查并保存' : '等待格子核对完成'}</li>
+        {aiCalls.length > 0 && <li className="sub">{formatAiCalls(aiCalls).slice(1)}</li>}
+      </ol>
       {error && step !== 'import' && <p className="error page-error">{error}</p>}
       {step !== 'import' && review[step] && <p className="review page-error">{review[step]}</p>}
       <main>
         {step === 'import' && (
           <ImportPage
             img={img}
-            rec={rec}
-            names={names}
-            assign={assign}
+            rec={draft}
             busy={busy}
             error={error}
-            note={readNote}
             onOpen={(f) => {
+              setSourceUrl('')
               setSuggested('')
               open(f)
             }}
-            onLink={(f, title) => {
+            onLink={(f, title, url) => {
+              setSourceUrl(url ?? '')
               setSuggested(title)
               open(f)
             }}
-            onBoard={(extent) => rec && file && open(file, undefined, { grid: rec.grid, extent }, aiLegend)}
+            onBoard={changeBoard}
+            pendingBoard={boardPending}
+            onPendingBoard={setBoardPending}
             review={review}
             printedSize={aiLegend?.size}
-            onNext={() => setStep('codes')}
+            onNext={readLegend}
           />
         )}
-        {step === 'codes' && img && rec && (
-          <CodesPage img={img} rec={rec} names={names} assign={assign} counts={counts} legend={legend} legendRect={legendRect} onNames={setNames} onLegend={setLegend} onLegendRect={setLegendRect} onAskAi={askAi} onNext={() => setStep('wall')} />
+        {step === 'codes' && img && ready && !busy && (
+          <>
+            {readNote && <p className="hint page-error">{readNote}</p>}
+            <CodesPage img={img} rec={legendConfirmed ? rec : null} names={names} assign={assign} counts={legendConfirmed ? counts : new Map()} legend={legend} legendRect={legendRect} onNames={setNames} onLegend={setLegend} onLegendRect={setLegendRect} onAskAi={askAi} onNext={identifyCells} />
+          </>
         )}
-        {step === 'wall' && img && rec && <WallPage img={img} rec={rec} names={names} assign={assign} counts={counts} legend={legend} onAssign={setAssign} onNames={setNames} onAskCells={askCells} />}
-        {step === 'list' && img && rec && <ListPage counts={counts} legend={legend} onSave={() => setAsking(true)} />}
+        {step === 'wall' && img && rec && cellsReady && <>
+          <WallPage img={img} rec={rec} names={names} assign={assign} counts={counts} legend={legend} onAssign={setAssign} onNames={(v) => { setNamesState(v); setDirty(true); setCellsReviewed(false) }} onAskCells={askCells} />
+          <div className="page"><button className="primary" disabled={!!busy} onClick={() => { setCellsReviewed(true); setStep('list') }}>格子已核对，查看原图对比</button></div>
+        </>}
+        {step === 'list' && img && rec && cellsReady && cellsReviewed && <>
+          <div className="page"><BoardComparison img={img} rec={rec} names={names} assign={assign} /><button className="link" onClick={() => setStep('wall')}>返回修改格子</button></div>
+          <ListPage counts={counts} legend={legend} onSave={() => setAsking(true)} />
+        </>}
         {!ready && step !== 'import' && <p className="hint page-error">{busy || '没能打开这张图纸'}</p>}
       </main>
       {asking && (
@@ -376,67 +438,50 @@ function doubtfulCells(rec: Recognition, assign: Int16Array): number[] {
   return out.sort((a, b) => rec.confidence[a] - rec.confidence[b]).slice(0, MAX_CELLS_CHECKED)
 }
 
-const SAMPLES_PER_GROUP = 5
-const NAME_VOTES = 3 // at least this many cells read alike...
-const NAME_SHARE = 0.6 // ...and this share of those read, to rename a group
-
-/**
- * Each group's name checked by the model: a few of its surest printed cells are read, and a group
- * whose cells clearly read as another code takes that name (two groups reading the same code
- * become one). The printed code settles what colour and counts could only guess.
- */
-async function nameGroupsWithAi(img: HTMLImageElement, rec: Recognition, names: string[], assign: Int16Array, ai: AiSettings) {
-  const codes = [...new Set(names.filter(Boolean))]
-  const members: number[][] = names.map(() => [])
-  assign.forEach((g, i) => {
-    if (g >= 0 && rec.cells.share[i] > 0.06) members[g].push(i)
-  })
-  // spread over the surer half of each group, so one odd patch cannot outvote the rest
-  const samples = members.flatMap((m) => {
-    const sure = [...m].sort((x, y) => rec.confidence[y] - rec.confidence[x]).slice(0, Math.max(SAMPLES_PER_GROUP, Math.ceil(m.length / 2)))
-    const step = Math.max(1, Math.floor(sure.length / SAMPLES_PER_GROUP))
-    return sure.filter((_, k) => k % step === 0).slice(0, SAMPLES_PER_GROUP)
-  })
-  if (!samples.length || !codes.length) return null
-  const read = await readCellsWithAi(img, rec, samples, codes, ai)
-  const votes = names.map(() => new Map<string, number>())
-  for (const [cell, code] of read) if (code) votes[assign[cell]].set(code, (votes[assign[cell]].get(code) ?? 0) + 1)
-  const nextNames = [...names]
-  const target = names.map((_, g) => g)
-  let renamed = 0
-  votes.forEach((v, g) => {
-    const total = [...v.values()].reduce((x, y) => x + y, 0)
-    const [top, n] = [...v].sort((x, y) => y[1] - x[1])[0] ?? ['', 0]
-    if (!top || top === names[g] || n < NAME_VOTES || n < total * NAME_SHARE) return
-    let to = nextNames.indexOf(top)
-    if (to < 0) to = nextNames.push(top) - 1
-    target[g] = to
-    renamed++
-  })
-  if (!renamed) return null
-  return { names: nextNames, assign: assign.map((g) => (g < 0 ? -1 : target[g])), renamed }
-}
+const colourDistance = (a: { r: number; g: number; b: number }, b: { r: number; g: number; b: number }) => Math.abs(a.r - b.r) + Math.abs(a.g - b.g) + Math.abs(a.b - b.b)
 
 /** The model's reading of doubtful cells laid onto the board: read codes replace the guess, and the
  *  cell counts as checked. Cells it saw no code in are left as they were. */
-async function checkCells(img: HTMLImageElement, rec: Recognition, names: string[], assign: Int16Array, ai: AiSettings) {
+async function checkCells(img: HTMLImageElement, rec: Recognition, names: string[], assign: Int16Array, ai: AiSettings, trace?: (event: AiRequestEvent) => void) {
   const cells = doubtfulCells(rec, assign)
   const codes = [...new Set(names.filter(Boolean))]
   if (!cells.length || !codes.length) return null
-  const read = await readCellsWithAi(img, rec, cells, codes, ai)
+  const read = await readCellsWithAi(img, rec, cells, codes, ai, trace, 'cell-check')
   const nextNames = [...names]
   const nextAssign = Int16Array.from(assign)
   const unsure = Uint8Array.from(rec.unsure)
   let changed = 0
+  let vetoed = 0
+  let unread = 0
   for (const [cell, code] of read) {
-    if (!code) continue
+    if (!code) { unread++; continue }
     let g = nextNames.indexOf(code)
     if (g < 0) g = nextNames.push(code) - 1
+    if (!aiCellColourSupports(rec, nextNames, nextAssign[cell], g, cell)) {
+      vetoed++
+      continue
+    }
     if (nextAssign[cell] !== g) changed++
     nextAssign[cell] = g
     unsure[cell] = 0
   }
-  return { names: nextNames, assign: nextAssign, rec: { ...rec, unsure }, asked: cells.length, changed }
+  return { names: nextNames, assign: nextAssign, rec: { ...rec, unsure }, asked: cells.length, changed, vetoed, unread }
+}
+
+/** A cell-level model correction must agree with the image colour, not just the printed glyph. */
+function aiCellColourSupports(rec: Recognition, names: string[], from: number, to: number, cell: number): boolean {
+  if (from < 0 || from === to) return true
+  const observed = { r: rec.cells.fill[cell * 3], g: rec.cells.fill[cell * 3 + 1], b: rec.cells.fill[cell * 3 + 2] }
+  const currentGroup = rec.groups[from]
+  const candidateGroup = rec.groups[to]
+  // Group names may have been remapped by the preceding group-name pass; do not pair a stale
+  // group's learned colour with its new code.
+  const current = currentGroup?.code === names[from] ? currentGroup.colour : CATALOGUE[names[from]]
+  const candidate = candidateGroup?.code === names[to] ? candidateGroup.colour : CATALOGUE[names[to]]
+  if (!candidate) return true
+  const candidateOff = colourDistance(observed, candidate)
+  const currentOff = current ? colourDistance(observed, current) : Infinity
+  return candidateOff <= Math.min(AI_CELL_COLOUR_MAX, currentOff + AI_CELL_COLOUR_MARGIN)
 }
 
 /**
@@ -533,59 +578,55 @@ export function SaveSheet(props: { initial: { title: string; status: Status; tag
   )
 }
 
-function colourOf(rec: Recognition, names: string[], g: number): string {
-  return css(CATALOGUE[names[g]] ?? rec.groups[g]?.colour ?? GREY)
+function BoardComparison({ img, rec, names, assign }: { img: HTMLImageElement; rec: Recognition; names: string[]; assign: Int16Array }) {
+  const original = useRef<HTMLCanvasElement>(null)
+  const result = useRef<HTMLCanvasElement>(null)
+  useEffect(() => {
+    if (!original.current || !result.current) return
+    const { grid, cells } = rec
+    drawBoard(result.current, cells.cols, cells.rows, Array.from(assign, (g) => g < 0 ? '' : names[g]), 900)
+    const c = original.current
+    c.width = result.current.width
+    c.height = result.current.height
+    const ctx = c.getContext('2d')!
+    ctx.fillStyle = '#fff'
+    ctx.fillRect(0, 0, c.width, c.height)
+    ctx.drawImage(img, grid.offX + cells.c0 * grid.perX, grid.offY + cells.r0 * grid.perY, cells.cols * grid.perX, cells.rows * grid.perY, 0, 0, c.width, c.height)
+  }, [img, rec, names, assign])
+  return <section className="card compare">
+    <figure><canvas ref={original} /><figcaption>原图（已确认范围）</figcaption></figure>
+    <figure><canvas ref={result} /><figcaption>识别图（包含刚才的修改）</figcaption></figure>
+  </section>
 }
 
 // ------------------------------------------------------------------ import
 
 function ImportPage(props: {
   img: HTMLImageElement | null
-  rec: Recognition | null
-  names: string[]
-  assign: Int16Array
+  rec: BoardDraft | null
   busy: string
   error: string
-  note: string
   review: Partial<Record<Step, string>>
   printedSize?: { cols: number; rows: number }
   onOpen: (src: Blob | string) => void
-  onLink: (image: Blob, title: string) => void
+  onLink: (image: Blob, title: string, sourceUrl?: string) => void
   onBoard: (extent: Extent) => void
+  pendingBoard: boolean
+  onPendingBoard: (pending: boolean) => void
   onNext: () => void
 }) {
-  const { img, rec, names, assign, busy, error, note, review, printedSize, onOpen, onLink, onBoard, onNext } = props
+  const { img, rec, busy, error, review, printedSize, onOpen, onLink, onBoard, pendingBoard, onPendingBoard, onNext } = props
   const checks = STEPS.filter(([t]) => review[t])
-  const board = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
     const paste = (e: ClipboardEvent) => {
       const file = [...(e.clipboardData?.files ?? [])].find((f) => f.type.startsWith('image/'))
-      if (file) onOpen(file)
+      if (file && !busy) onOpen(file)
     }
     window.addEventListener('paste', paste)
     return () => window.removeEventListener('paste', paste)
   })
 
-  useEffect(() => {
-    const canvas = board.current
-    if (!canvas || !rec) return
-    const { rows, cols } = rec.cells
-    const px = Math.max(3, Math.floor(640 / Math.max(rows, cols)))
-    canvas.width = cols * px
-    canvas.height = rows * px
-    const ctx = canvas.getContext('2d')!
-    ctx.fillStyle = '#fff'
-    ctx.fillRect(0, 0, canvas.width, canvas.height)
-    for (let i = 0; i < assign.length; i++) {
-      if (assign[i] < 0) continue
-      ctx.fillStyle = colourOf(rec, names, assign[i])
-      ctx.fillRect((i % cols) * px, Math.floor(i / cols) * px, px, px)
-    }
-  }, [rec, names, assign])
-
-  const unsure = rec ? rec.unsure.reduce((a, b) => a + b, 0) : 0
-  const beads = assign.reduce((a, g) => a + (g >= 0 ? 1 : 0), 0)
   return (
     <div className="page">
       <label
@@ -594,10 +635,10 @@ function ImportPage(props: {
         onDrop={(e) => {
           e.preventDefault()
           const f = e.dataTransfer.files[0]
-          if (f) onOpen(f)
+          if (f && !busy) onOpen(f)
         }}
       >
-        <input type="file" accept="image/*" hidden onChange={(e) => e.target.files?.[0] && onOpen(e.target.files[0])} />
+        <input type="file" accept="image/*" hidden disabled={!!busy} onChange={(e) => e.target.files?.[0] && onOpen(e.target.files[0])} />
         <strong>{busy || '选择图纸图片'}</strong>
         <span>也可以把图片拖进来，或直接粘贴</span>
       </label>
@@ -621,22 +662,9 @@ function ImportPage(props: {
               <b>
                 {rec.cells.cols} × {rec.cells.rows}
               </b>
-              <span>格子</span>
-            </div>
-            <div>
-              <b>{rec.groups.length}</b>
-              <span>种颜色</span>
-            </div>
-            <div>
-              <b>{beads}</b>
-              <span>颗</span>
-            </div>
-            <div>
-              <b>{unsure}</b>
-              <span>格待确认</span>
+              <span>已定位的格子，下一步读取图例</span>
             </div>
           </section>
-          {note && <p className="hint">{note}</p>}
           {checks.length > 0 && (
             <section className="card review">
               <b>建议人工核对</b>
@@ -648,19 +676,10 @@ function ImportPage(props: {
               ))}
             </section>
           )}
-          <BoardCheck key={`${rec.cells.r0},${rec.cells.c0},${rec.cells.rows},${rec.cells.cols}`} img={img} rec={rec} busy={!!busy} printedSize={printedSize} onApply={onBoard} />
-          <section className="card compare">
-            <figure>
-              <img src={img.src} alt="原图" />
-              <figcaption>原图</figcaption>
-            </figure>
-            <figure>
-              <canvas ref={board} />
-              <figcaption>识别结果</figcaption>
-            </figure>
-          </section>
-          <button className="primary" onClick={onNext}>
-            下一步：确认色号
+          <BoardCheck key={`${rec.cells.r0},${rec.cells.c0},${rec.cells.rows},${rec.cells.cols}`} img={img} rec={rec} busy={!!busy} printedSize={printedSize} onApply={onBoard} onPendingChange={onPendingBoard} />
+          {pendingBoard && <p className="hint">先应用调整后的范围，再读取图例。</p>}
+          <button className="primary" disabled={!!busy || pendingBoard} onClick={onNext}>
+            网格已确认，下一步读色号和颗数
           </button>
         </>
       )}
@@ -669,7 +688,7 @@ function ImportPage(props: {
 }
 
 /** The board the recogniser settled on, drawn over the image, with each edge movable by whole cells. */
-function BoardCheck({ img, rec, busy, printedSize, onApply }: { img: HTMLImageElement; rec: Recognition; busy: boolean; printedSize?: { cols: number; rows: number }; onApply: (e: Extent) => void }) {
+function BoardCheck({ img, rec, busy, printedSize, onApply, onPendingChange }: { img: HTMLImageElement; rec: BoardDraft & { assign?: Int16Array }; busy: boolean; printedSize?: { cols: number; rows: number }; onApply: (e: Extent) => void; onPendingChange?: (changed: boolean) => void }) {
   const found = { r0: rec.cells.r0, c0: rec.cells.c0, rows: rec.cells.rows, cols: rec.cells.cols }
   const [ext, setExt] = useState(found)
   const ref = useRef<HTMLCanvasElement>(null)
@@ -695,6 +714,7 @@ function BoardCheck({ img, rec, busy, printedSize, onApply }: { img: HTMLImageEl
     ctx.strokeRect(x, y, ext.cols * grid.perX * scale, ext.rows * grid.perY * scale)
   }, [img, grid, ext])
   const changed = ext.r0 !== found.r0 || ext.c0 !== found.c0 || ext.rows !== found.rows || ext.cols !== found.cols
+  useEffect(() => { onPendingChange?.(changed) }, [changed, onPendingChange])
   // the smallest board that still holds every bead: authors often leave rows of empty cells around
   const trimmed = useMemo(() => {
     const { cols, rows } = rec.cells
@@ -702,7 +722,7 @@ function BoardCheck({ img, rec, busy, printedSize, onApply }: { img: HTMLImageEl
     let bottom = -1
     let left = cols
     let right = -1
-    rec.assign.forEach((g, i) => {
+    rec.assign?.forEach((g, i) => {
       if (g < 0) return
       const x = i % cols
       const y = (i - x) / cols
@@ -765,7 +785,7 @@ function BoardCheck({ img, rec, busy, printedSize, onApply }: { img: HTMLImageEl
             还原
           </button>
           <button className="primary small" disabled={busy} onClick={() => onApply(ext)}>
-            按这个范围重新识别
+            应用这个图纸范围
           </button>
         </div>
       )}
@@ -785,7 +805,7 @@ function Label({ label, px = 96 }: { label: Float32Array; px?: number }) {
 
 function CodesPage(props: {
   img: HTMLImageElement
-  rec: Recognition
+  rec: Recognition | null
   names: string[]
   assign: Int16Array
   counts: Map<string, number>
@@ -802,6 +822,7 @@ function CodesPage(props: {
   // each row's stacked print and colour, from the cells it has now: cells move between groups
   // (the model naming groups, cells corrected on the review page) after the recogniser drew them
   const current = useMemo(() => {
+    if (!rec) return []
     const members: number[][] = names.map(() => [])
     assign.forEach((g, i) => {
       if (g >= 0 && members[g] && rec.cells.share[i] > 0.06) members[g].push(i)
@@ -838,7 +859,7 @@ function CodesPage(props: {
   // a colour the recogniser missed sorts by the count typed for it
   const size = (code: string) => counts.get(code) || legend[code] || 0
   // rows whose count disagrees with the legend first, whichever order is chosen
-  const disagrees = (code: string) => (legend[code] !== undefined && (counts.get(code) ?? 0) !== legend[code] ? 1 : 0)
+  const disagrees = (code: string) => (rec && legend[code] !== undefined && (counts.get(code) ?? 0) !== legend[code] ? 1 : 0)
   const sortedBy = (mode: 'count' | 'code', list: string[]) =>
     list
       .map((_, i) => i)
@@ -993,16 +1014,16 @@ function CodesPage(props: {
           </button>
         </div>
         <span className="sub">
-          {live.length} 色，识别 {found} 颗{printed.length > 0 && `；图例已填 ${printed.length} 色共 ${printedTotal} 颗，${mismatched ? `${mismatched} 个对不上` : '全部对上'}`}
+          {live.length} 个色号{rec ? `，识别 ${found} 颗` : '，等待确认后识别格子'}{printed.length > 0 && `；图例已填 ${printed.length} 色共 ${printedTotal} 颗${rec ? `，${mismatched ? `${mismatched} 个对不上` : '全部对上'}` : ''}`}
         </span>
-        <div className="row">
+        {rec && <div className="row">
           <button className="small glass" onClick={() => setBulk({ mode: 'recolour', a: live[0] ?? '', b: '' })}>
             整组改色
           </button>
           <button className="small glass" disabled={live.length < 2} onClick={() => setBulk({ mode: 'swap', a: live[0] ?? '', b: live[1] ?? '' })}>
             交换两组
           </button>
-        </div>
+        </div>}
       </div>
 
       {bulk && (
@@ -1072,11 +1093,11 @@ function CodesPage(props: {
             const valid = code in CATALOGUE
             const n = counts.get(code) ?? 0
             const want = legend[code]
-            const diff = want === undefined ? null : n - want
+            const diff = !rec || want === undefined ? null : n - want
             return (
               <Fragment key={i}>
               <div className="coderow">
-                {g ? <Label label={g.label} px={52} /> : <span className="nolabel">{rec.groups[i] ? '没有格子' : '手动添加'}</span>}
+                {g ? <Label label={g.label} px={52} /> : <span className="nolabel">{rec ? '没有格子' : '图例'}</span>}
                 <div className="codecell">
                   <span className="swatch" style={{ background: css(g?.colour ?? CATALOGUE[code] ?? GREY) }} />
                   <input
@@ -1087,9 +1108,9 @@ function CodesPage(props: {
                     aria-label="色号"
                   />
                   {!valid && <span className="sub bad">不是 MARD 色号</span>}
-                  {valid && dupes.has(code) && <span className="sub">同名，已合并</span>}
+                  {valid && dupes.has(code) && <span className="sub">{rec ? '同名，已合并' : '重复，请改正'}</span>}
                 </div>
-                <span className="num">{n}</span>
+                <span className="num">{rec ? n : '—'}</span>
                 <div className="wantcell">
                   <input
                     className="countinput"
@@ -1127,10 +1148,10 @@ function CodesPage(props: {
         {insertAt === null && addRow}
       </section>
       <p className="hint">
-        "识别"是程序数出来的颗数，"图例"填图纸上印的颗数，两边对不上的会标出来，到核对页也会显示。程序漏掉的色号：点任意一行的"插入"加在它下面，或在最后一行新增，再到核对页把对应的格子改过去。还有格子的色号不能直接删：改成正确的色号就会并过去。
+        {rec ? '色号和图例颗数已确认。需要改图例时，改完会重新识别格子，替换之前的格子修改。' : '请对照上方原图，核查全部色号和颗数；漏号可插入，错号可改或删除。未读清的颗数可以留空，不会强行凑数。确认之前不会分类格子，也不会调用格子 AI。'}
       </p>
-      <button className="primary" onClick={onNext}>
-        下一步：逐格核对
+      <button className="primary" disabled={busy || !live.length || live.some((c) => !(c in CATALOGUE)) || (!rec && dupes.size > 0)} onClick={onNext}>
+        {rec ? '下一步：核对格子' : '色号和颗数已核对，开始识别格子'}
       </button>
     </div>
   )
@@ -1472,7 +1493,7 @@ function WallPage(props: {
               }
             }}
           >
-            {checking ? 'AI 核对中…' : `让 AI 核对没把握的 ${doubtful} 格`}
+            {checking ? 'AI 核对中…' : `让 AI 核对没把握的 ${doubtful} 格（${Math.ceil(doubtful / CELLS_PER_REQUEST)} 次请求）`}
           </button>
           {checkNote && <span className="sub">{checkNote}</span>}
         </div>

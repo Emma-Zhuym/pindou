@@ -11,6 +11,15 @@ export interface AiSettings {
   model: string
 }
 
+/** One actual vision request made during a recognition run. */
+export type AiRequestPhase = 'legend' | 'group-names' | 'cell-check'
+export interface AiRequestEvent {
+  phase: AiRequestPhase
+  /** Number of chart items sent in this request (1 for the legend crop). */
+  items: number
+}
+export type AiRequestTrace = (event: AiRequestEvent) => void
+
 const STORE = 'pindou.ai'
 
 export function loadAiSettings(): AiSettings {
@@ -61,7 +70,8 @@ const whole = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v 
 
 /** What the legend prints: codes and counts, and the board size and total when shown. Only the
  *  legend crop is sent. */
-export async function readLegendWithAi(img: HTMLImageElement, rect: Rect, settings: AiSettings): Promise<AiLegend> {
+export async function readLegendWithAi(img: HTMLImageElement, rect: Rect, settings: AiSettings, trace?: AiRequestTrace): Promise<AiLegend> {
+  trace?.({ phase: 'legend', items: 1 })
   const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: { Authorization: `Bearer ${settings.key}`, 'Content-Type': 'application/json' },
@@ -116,7 +126,7 @@ export async function listVisionModels(key: string): Promise<ModelInfo[]> {
 
 const CELL_TILE = 72
 const TILES_PER_ROW = 10
-const CELLS_PER_REQUEST = 100
+export const CELLS_PER_REQUEST = 100
 
 /** Numbered tiles of the given cells, cut from the image as they are (watermark and all). */
 function cellSheet(img: HTMLImageElement, rec: Recognition, cells: number[]): string {
@@ -151,11 +161,20 @@ function cellSheet(img: HTMLImageElement, rec: Recognition, cells: number[]): st
  * limited to the chart's own list; null where the model sees no code (an empty cell) or could not
  * read one.
  */
-export async function readCellsWithAi(img: HTMLImageElement, rec: Recognition, cells: number[], codes: string[], settings: AiSettings): Promise<Map<number, string | null>> {
+export async function readCellsWithAi(
+  img: HTMLImageElement,
+  rec: Recognition,
+  cells: number[],
+  codes: string[],
+  settings: AiSettings,
+  trace?: AiRequestTrace,
+  phase: AiRequestPhase = 'cell-check',
+): Promise<Map<number, string | null>> {
   const out = new Map<number, string | null>()
   const allowed = new Set(codes)
   for (let start = 0; start < cells.length; start += CELLS_PER_REQUEST) {
     const batch = cells.slice(start, start + CELLS_PER_REQUEST)
+    trace?.({ phase, items: batch.length })
     const prompt = [
       `这是一张拼豆图纸上裁下来的 ${batch.length} 个格子，每格上方有红色编号。每个格子中间印着这一格的拼豆色号，有的被半透明水印或线条挡住一部分。`,
       `这张图纸只用到这些色号：${codes.join('、')}。`,

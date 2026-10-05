@@ -220,6 +220,16 @@ input:focus-visible {
 .flow .title {
   padding-top: 8px;
 }
+.flowprogress {
+  max-width: 960px;
+  margin: 8px auto 16px;
+  padding: 0 20px;
+  list-style: none;
+  display: grid;
+  gap: 5px;
+  font-size: 13px;
+  color: var(--sub);
+}
 .flow .page {
   padding-bottom: calc(40px + env(safe-area-inset-bottom));
 }
@@ -603,6 +613,11 @@ h2 {
 }
 .titleinput:focus {
   background: var(--fill);
+}
+.chartsource {
+  display: block;
+  margin: -10px 0 14px;
+  overflow-wrap: anywhere;
 }
 .preview {
   display: flex;

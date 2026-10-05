@@ -11,7 +11,7 @@ export interface Rect {
 
 /** The strip above or below the grid that shows more of the board's colours, with blank margins
  *  trimmed. Returns null when neither strip looks like a legend. */
-export function findLegend(img: Raster, rec: Recognition): Rect | null {
+export function findLegend(img: Raster, rec: Pick<Recognition, 'grid' | 'extent'> & { groups: Pick<Recognition['groups'][number], 'colour'>[] }): Rect | null {
   const { width: W, height: H, data } = img
   const top = Math.max(0, Math.round(rec.grid.offY + rec.extent.r0 * rec.grid.perY))
   const bottom = Math.min(H, Math.round(rec.grid.offY + (rec.extent.r0 + rec.extent.rows) * rec.grid.perY))
@@ -59,7 +59,7 @@ export function findLegend(img: Raster, rec: Recognition): Rect | null {
 }
 
 /** Fallback legend region: the largest margin outside the board (below, above, right, left). */
-export function outsideBoard(rec: Recognition, W: number, H: number): Rect | null {
+export function outsideBoard(rec: Pick<Recognition, 'grid' | 'cells'>, W: number, H: number): Rect | null {
   const { grid, cells } = rec
   const top = Math.max(0, Math.floor(grid.offY + cells.r0 * grid.perY))
   const bottom = Math.min(H, Math.ceil(grid.offY + (cells.r0 + cells.rows) * grid.perY))

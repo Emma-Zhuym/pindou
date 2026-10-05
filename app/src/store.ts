@@ -13,6 +13,8 @@ export const ENGINE_VERSION = 2
 export interface Chart {
   id: string
   title: string
+  /** The page link used to import the chart, when it came from an external source. */
+  sourceUrl?: string
   status: Status
   tags: string[]
   createdAt: number
