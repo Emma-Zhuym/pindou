@@ -41,7 +41,6 @@
 - 可以在设置里导出备份文件，换设备或换浏览器时再恢复。
 - 只有开启 AI 辅助时，才会把图例和格子的裁剪小图发给 OpenRouter，用的是你自己的 Key。
 - 读取小红书笔记时不登录、不用 Cookie，一次只读一条你主动分享的笔记。
-- 选了「手绘纸张」外观时，会从 Google Fonts 下载手写字体。
 
 ## 本地开发
 
@@ -78,6 +77,7 @@ pnpm lint
 
 - 本项目以 [AGPL-3.0](LICENSE) 发布。
 - MARD 色卡数据来自 [Zippland/perler-beads](https://github.com/Zippland/perler-beads)（AGPL-3.0）。
+- 手绘纸张外观的像素字体是 [缝合像素字体 Fusion Pixel Font](https://github.com/TakWolf/fusion-pixel-font)（SIL OFL 1.1，协议见 `app/src/fonts/`）。
 - 图标是用代码一笔一笔画的蜡笔画（`app/tools/crayon-icon.ts`）。
 - 屏幕上的颜色只是近似，以实物豆子为准。
 - 本项目是个人项目，与 MARD、小红书没有关系。

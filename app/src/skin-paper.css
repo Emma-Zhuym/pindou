@@ -1,6 +1,14 @@
 /* The hand-drawn look (skin.ts sets data-skin="paper" on <html>): cream paper with a faint grain,
-   ink lines drawn a little crooked, crayon colours, a handwritten face for headings and buttons.
+   ink lines drawn a little crooked, crayon colours, a pixel face (like beads) for headings and
+   buttons: Fusion Pixel 12px, simplified Chinese, OFL 1.1 (src/fonts/OFL.txt), drawn at whole
+   multiples of its 12px grid where it can be.
    Only colours, lines and type change; every page keeps its layout. Always light: it is paper. */
+
+@font-face {
+  font-family: 'Fusion Pixel';
+  src: url('./fonts/fusion-pixel-12px-zh_hans.woff2') format('woff2');
+  font-display: swap;
+}
 
 :root[data-skin='paper'] {
   --bg: #f6efe1;
@@ -23,7 +31,7 @@
   --hand-pill: 255px 18px 225px 18px / 18px 225px 18px 255px;
   --hand-pill-b: 18px 225px 18px 255px / 255px 18px 225px 18px;
   --hand-card: 24px 32px 20px 36px / 32px 20px 34px 24px;
-  --hand-font: 'ZCOOL KuaiLe', 'PingFang SC', 'Hiragino Sans GB', sans-serif;
+  --hand-font: 'Fusion Pixel', 'PingFang SC', 'Hiragino Sans GB', sans-serif;
   color-scheme: light;
 }
 
@@ -44,17 +52,25 @@
 [data-skin='paper'] .beadtitle b {
   font-family: var(--hand-font);
   font-weight: 400;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
 }
 [data-skin='paper'] .title h1 {
-  font-size: 38px;
+  font-size: 36px;
 }
 [data-skin='paper'] h2 {
-  font-size: 22px;
+  font-size: 24px;
 }
 [data-skin='paper'] .sectiontitle {
   color: var(--ink);
-  font-size: 16px;
+  font-size: 12px;
+}
+[data-skin='paper'] .small,
+[data-skin='paper'] .primary.small,
+[data-skin='paper'] .chip,
+[data-skin='paper'] .segmented button,
+[data-skin='paper'] .tabbar button,
+[data-skin='paper'] .status {
+  font-size: 12px;
 }
 
 /* cards: a sheet of paper outlined in ink */
@@ -190,4 +206,14 @@
 /* links that are symbols (zoom − and +) need no underline */
 [data-skin='paper'] .zoombar .link {
   text-decoration: none;
+}
+/* a pixel face has no bold: made-up bold smears its squares */
+[data-skin='paper'] .segmented button[aria-selected='true'],
+[data-skin='paper'] .tabbar button[aria-selected='true'],
+[data-skin='paper'] .chip.on,
+[data-skin='paper'] .status,
+[data-skin='paper'] .meta b,
+[data-skin='paper'] .beadtitle b,
+[data-skin='paper'] .primary {
+  font-weight: 400;
 }

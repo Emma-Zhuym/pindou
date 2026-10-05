@@ -422,7 +422,6 @@ function SettingsPage({ onRestored, count }: { onRestored: () => Promise<void>; 
             </button>
           ))}
         </div>
-        {skin === 'paper' && <p className="hint">手绘纸张用的手写字体第一次要从网上下载，没网时会先用普通字体。</p>}
       </section>
 
       <h2 className="sectiontitle">AI 读图例</h2>
