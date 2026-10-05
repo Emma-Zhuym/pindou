@@ -138,6 +138,8 @@ export function readCells(img: Raster, grid: Grid, ext: Extent, inset = 0.16): C
 }
 
 /** Remove the numbered border: a flat colour that the picture itself does not use. */
+const BORDER_APART = 18
+
 export function stripBorder(cells: Cells): Cells {
   const { rows, cols, fill } = cells
   const colour = (r: number, c: number) => [fill[(r * cols + c) * 3], fill[(r * cols + c) * 3 + 1], fill[(r * cols + c) * 3 + 2]]
@@ -147,8 +149,10 @@ export function stripBorder(cells: Cells): Cells {
   for (let r = 2; r < rows - 2; r++) for (let c = 2; c < cols - 2; c++) inner.push(colour(r, c))
   const isBorder = (line: number[][]) => {
     const med = median(line)
+    // a border is one flat colour; pale beads (H10, near-white) sit within 30 of a pale-blue
+    // ruler, so the test of "not found inside" is tighter than that
     const flat = line.filter((p) => dist(p, med) < 30).length / line.length
-    const inside = inner.filter((p) => dist(p, med) < 30).length / inner.length
+    const inside = inner.filter((p) => dist(p, med) < BORDER_APART).length / inner.length
     return flat > 0.8 && inside < 0.02
   }
   const rowLine = (r: number) => Array.from({ length: cols - 4 }, (_, k) => colour(r, k + 2))

@@ -106,6 +106,21 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
       let a = Int16Array.from(result.assign)
       // with a key set, the model also reads the cells the recogniser is unsure of
       const ai = loadAiSettings()
+      // with the legend read by the model, the model also names each group from a few of its cells:
+      // colour and counts alone mix up codes of near the same colour
+      if (!saved && got && ai.key && ai.model) {
+        setBusy('AI 正在核对每种颜色的色号…')
+        try {
+          const named = await nameGroupsWithAi(image, result, n, a, ai)
+          if (named) {
+            n = named.names
+            a = named.assign
+            if (named.renamed) note += `；AI 看了每种颜色的几个格子，改正了 ${named.renamed} 个色号`
+          }
+        } catch (e) {
+          note += `；AI 核对色号失败：${e instanceof Error ? e.message : String(e)}`
+        }
+      }
       if (!saved && ai.key && ai.model) {
         setBusy('AI 正在核对没把握的格子…')
         try {
@@ -179,12 +194,24 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
     const r = applyReading(base, fitList(base, list, local, renderText))
     setAiLegend(got)
     setLocalUnsure(false)
-    const next = r.groups.map((g) => g.code)
+    let next = r.groups.map((g) => g.code)
+    let a = Int16Array.from(r.assign)
+    let note = `AI 读出图例上 ${list.length} 个色号，已按颜色和颗数对到格子上`
+    try {
+      const named = await nameGroupsWithAi(img, r, next, a, ai)
+      if (named) {
+        next = named.names
+        a = named.assign
+        note += `；看了每种颜色的几个格子，改正了 ${named.renamed} 个色号`
+      }
+    } catch (e) {
+      note += `；核对色号失败：${e instanceof Error ? e.message : String(e)}`
+    }
     setRec(r)
     setNames(next)
-    setAssign(Int16Array.from(r.assign))
+    setAssign(a)
     setLegend({ ...legend, ...Object.fromEntries(list.filter((e) => e.count !== undefined).map((e) => [e.code, e.count!])) })
-    setReadNote(`AI 读出图例上 ${list.length} 个色号，已按颜色和颗数对到格子上`)
+    setReadNote(note)
     return next
   }
 
@@ -346,6 +373,47 @@ function doubtfulCells(rec: Recognition, assign: Int16Array): number[] {
   }
   // least sure first, in case there are more than one look can take
   return out.sort((a, b) => rec.confidence[a] - rec.confidence[b]).slice(0, MAX_CELLS_CHECKED)
+}
+
+const SAMPLES_PER_GROUP = 5
+const NAME_VOTES = 3 // at least this many cells read alike...
+const NAME_SHARE = 0.6 // ...and this share of those read, to rename a group
+
+/**
+ * Each group's name checked by the model: a few of its surest printed cells are read, and a group
+ * whose cells clearly read as another code takes that name (two groups reading the same code
+ * become one). The printed code settles what colour and counts could only guess.
+ */
+async function nameGroupsWithAi(img: HTMLImageElement, rec: Recognition, names: string[], assign: Int16Array, ai: AiSettings) {
+  const codes = [...new Set(names.filter(Boolean))]
+  const members: number[][] = names.map(() => [])
+  assign.forEach((g, i) => {
+    if (g >= 0 && rec.cells.share[i] > 0.06) members[g].push(i)
+  })
+  // spread over the surer half of each group, so one odd patch cannot outvote the rest
+  const samples = members.flatMap((m) => {
+    const sure = [...m].sort((x, y) => rec.confidence[y] - rec.confidence[x]).slice(0, Math.max(SAMPLES_PER_GROUP, Math.ceil(m.length / 2)))
+    const step = Math.max(1, Math.floor(sure.length / SAMPLES_PER_GROUP))
+    return sure.filter((_, k) => k % step === 0).slice(0, SAMPLES_PER_GROUP)
+  })
+  if (!samples.length || !codes.length) return null
+  const read = await readCellsWithAi(img, rec, samples, codes, ai)
+  const votes = names.map(() => new Map<string, number>())
+  for (const [cell, code] of read) if (code) votes[assign[cell]].set(code, (votes[assign[cell]].get(code) ?? 0) + 1)
+  const nextNames = [...names]
+  const target = names.map((_, g) => g)
+  let renamed = 0
+  votes.forEach((v, g) => {
+    const total = [...v.values()].reduce((x, y) => x + y, 0)
+    const [top, n] = [...v].sort((x, y) => y[1] - x[1])[0] ?? ['', 0]
+    if (!top || top === names[g] || n < NAME_VOTES || n < total * NAME_SHARE) return
+    let to = nextNames.indexOf(top)
+    if (to < 0) to = nextNames.push(top) - 1
+    target[g] = to
+    renamed++
+  })
+  if (!renamed) return null
+  return { names: nextNames, assign: assign.map((g) => (g < 0 ? -1 : target[g])), renamed }
 }
 
 /** The model's reading of doubtful cells laid onto the board: read codes replace the guess, and the

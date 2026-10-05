@@ -171,3 +171,7 @@
   background: rgba(246, 243, 236, 0.92);
   box-shadow: var(--glass-rim);
 }
+[data-skin='sketch'] .flow .flowbar {
+  background: var(--bg) url('./paper/paper.jpg') repeat;
+  background-size: 640px 640px;
+}
