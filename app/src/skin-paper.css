@@ -1,0 +1,193 @@
+/* The hand-drawn look (skin.ts sets data-skin="paper" on <html>): cream paper with a faint grain,
+   ink lines drawn a little crooked, crayon colours, a handwritten face for headings and buttons.
+   Only colours, lines and type change; every page keeps its layout. Always light: it is paper. */
+
+:root[data-skin='paper'] {
+  --bg: #f6efe1;
+  --card: #fffaf0;
+  --text: #3b352c;
+  --sub: #85796a;
+  --ink: #3b352c;
+  --line: rgba(59, 53, 44, 0.22);
+  --fill: rgba(150, 120, 80, 0.1);
+  --selected: #ffe7a3; /* a yellow crayon highlight */
+  --accent: #d9534a; /* the red of the icon */
+  --red: #c0392b;
+  --orange: #c26a12;
+  --glass: rgba(250, 244, 231, 0.9);
+  --glass-edge: rgba(59, 53, 44, 0.35);
+  --glass-filter: blur(10px);
+  --r-card: 22px;
+  --r-control: 12px;
+  /* lines drawn by hand: no two corners alike */
+  --hand-pill: 255px 18px 225px 18px / 18px 225px 18px 255px;
+  --hand-pill-b: 18px 225px 18px 255px / 255px 18px 225px 18px;
+  --hand-card: 24px 32px 20px 36px / 32px 20px 34px 24px;
+  --hand-font: 'ZCOOL KuaiLe', 'PingFang SC', 'Hiragino Sans GB', sans-serif;
+  color-scheme: light;
+}
+
+/* paper grain: a fixed noise tile, very faint */
+[data-skin='paper'] body {
+  background-color: var(--bg);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.42 0 0 0 0 0.34 0 0 0 0 0.22 0 0 0 0.09 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+}
+
+/* handwriting for what is read at a glance; body text and numbers stay plain */
+[data-skin='paper'] h1,
+[data-skin='paper'] h2,
+[data-skin='paper'] .sectiontitle,
+[data-skin='paper'] button,
+[data-skin='paper'] .chip,
+[data-skin='paper'] .status,
+[data-skin='paper'] .meta b,
+[data-skin='paper'] .beadtitle b {
+  font-family: var(--hand-font);
+  font-weight: 400;
+  letter-spacing: 0.02em;
+}
+[data-skin='paper'] .title h1 {
+  font-size: 38px;
+}
+[data-skin='paper'] h2 {
+  font-size: 22px;
+}
+[data-skin='paper'] .sectiontitle {
+  color: var(--ink);
+  font-size: 16px;
+}
+
+/* cards: a sheet of paper outlined in ink */
+[data-skin='paper'] .card,
+[data-skin='paper'] .chartcard,
+[data-skin='paper'] .drop {
+  border: 1.5px solid var(--ink);
+  border-radius: var(--hand-card);
+  background: var(--card);
+}
+[data-skin='paper'] .chartcard:nth-child(odd) {
+  transform: rotate(-0.6deg);
+}
+[data-skin='paper'] .chartcard:nth-child(even) {
+  transform: rotate(0.5deg);
+}
+[data-skin='paper'] .thumb {
+  border: 1.5px solid var(--line);
+  border-radius: var(--hand-pill-b);
+}
+
+/* bars and sheets: paper, an ink edge, no shadow */
+[data-skin='paper'] .glass,
+[data-skin='paper'] .legendpanel,
+[data-skin='paper'] .actionbar,
+[data-skin='paper'] .codeindex,
+[data-skin='paper'] .beadpalette,
+[data-skin='paper'] .beadtop {
+  background: var(--glass);
+  border-color: var(--glass-edge);
+}
+[data-skin='paper'] .tabbar,
+[data-skin='paper'] .fab,
+[data-skin='paper'] .circle,
+[data-skin='paper'] .flowbar .steps,
+[data-skin='paper'] .actionbar {
+  border: 1.5px solid var(--ink);
+}
+[data-skin='paper'] .tabbar,
+[data-skin='paper'] .flowbar .steps,
+[data-skin='paper'] .actionbar {
+  border-radius: var(--hand-pill);
+}
+[data-skin='paper'] .fab,
+[data-skin='paper'] .circle {
+  border-radius: 48% 52% 50% 50% / 52% 48% 52% 48%;
+}
+[data-skin='paper'] .sheetbody {
+  border: 1.5px solid var(--ink);
+  border-radius: var(--hand-card);
+  background: var(--card);
+}
+[data-skin='paper'] .sheet {
+  background: rgba(59, 53, 44, 0.25);
+}
+
+/* buttons: the main one crayoned in red, the others outlined */
+[data-skin='paper'] .primary {
+  border: 1.5px solid var(--ink);
+  border-radius: var(--hand-pill);
+  background: var(--accent);
+  color: #fffaf0;
+}
+[data-skin='paper'] .small,
+[data-skin='paper'] .small.glass,
+[data-skin='paper'] .toolbar .small.glass,
+[data-skin='paper'] .flowbar .small.glass {
+  border: 1.5px solid var(--ink);
+  border-radius: var(--hand-pill-b);
+  background: var(--card);
+}
+[data-skin='paper'] .primary.small {
+  background: var(--accent);
+}
+[data-skin='paper'] .chip {
+  border: 1.5px solid var(--line);
+  border-radius: var(--hand-pill);
+  background: var(--card);
+}
+[data-skin='paper'] .chip.on {
+  border-color: var(--ink);
+  background: var(--selected);
+  color: var(--ink);
+}
+[data-skin='paper'] .link {
+  color: var(--accent);
+  text-decoration: underline wavy color-mix(in srgb, var(--accent) 45%, transparent);
+  text-underline-offset: 4px;
+}
+
+/* the segmented control: chosen part highlighted in yellow crayon */
+[data-skin='paper'] .segmented {
+  border: 1.5px solid var(--ink);
+  border-radius: var(--hand-pill);
+  background: var(--card);
+}
+[data-skin='paper'] .segmented button {
+  border-radius: var(--hand-pill-b);
+}
+[data-skin='paper'] .segmented button[aria-selected='true'] {
+  background: var(--selected);
+  color: var(--ink);
+}
+[data-skin='paper'] .tabbar button[aria-selected='true'] {
+  background: var(--selected);
+  color: var(--ink);
+}
+
+/* fields: a hand-ruled box */
+[data-skin='paper'] .field input,
+[data-skin='paper'] .search,
+[data-skin='paper'] .titleinput,
+[data-skin='paper'] .chipadd input,
+[data-skin='paper'] .field select,
+[data-skin='paper'] .countinput,
+[data-skin='paper'] .bagselect,
+[data-skin='paper'] textarea {
+  border: 1.5px solid var(--line);
+  border-radius: var(--hand-pill-b);
+  background: var(--card);
+}
+
+[data-skin='paper'] .status {
+  border: 1px solid var(--ink);
+  background: var(--card);
+}
+[data-skin='paper'] .swatch {
+  border-color: rgba(59, 53, 44, 0.45);
+}
+[data-skin='paper'] .userow.head {
+  background: var(--card);
+}
+/* links that are symbols (zoom − and +) need no underline */
+[data-skin='paper'] .zoombar .link {
+  text-decoration: none;
+}

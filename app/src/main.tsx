@@ -1,6 +1,10 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App.tsx'
+import { applySkin, loadSkin } from './skin'
+import './skin-paper.css'
+
+applySkin(loadSkin())
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

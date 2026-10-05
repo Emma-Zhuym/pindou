@@ -4,6 +4,7 @@ import { type AiSettings, listVisionModels, loadAiSettings, type ModelInfo, save
 import { BeadMode } from './bead/BeadMode'
 import { Editor } from './edit/Editor'
 import { StatsPage } from './stats/StatsPage'
+import { type Skin, SKINS, loadSkin, saveSkin } from './skin'
 import { statusPatch } from './status'
 import { StockPage } from './stock/StockPage'
 import { Usage } from './stock/Usage'
@@ -387,6 +388,7 @@ function ChartDetail(props: { chart: Chart; onBack: () => void; onEdit: () => vo
 
 function SettingsPage({ onRestored, count }: { onRestored: () => Promise<void>; count: number }) {
   const [ai, setAi] = useState<AiSettings>(loadAiSettings)
+  const [skin, setSkin] = useState<Skin>(loadSkin)
   const [saved, setSaved] = useState(false)
   const [note, setNote] = useState('')
   const [kept, setKept] = useState<boolean | null>(null)
@@ -401,6 +403,27 @@ function SettingsPage({ onRestored, count }: { onRestored: () => Promise<void>; 
       <header className="title flat">
         <h1>设置</h1>
       </header>
+
+      <h2 className="sectiontitle">外观</h2>
+      <section className="card form">
+        <div className="segmented full" role="radiogroup" aria-label="外观">
+          {SKINS.map(([k, label]) => (
+            <button
+              key={k}
+              role="radio"
+              aria-checked={skin === k}
+              aria-selected={skin === k}
+              onClick={() => {
+                setSkin(k)
+                saveSkin(k)
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {skin === 'paper' && <p className="hint">手绘纸张用的手写字体第一次要从网上下载，没网时会先用普通字体。</p>}
+      </section>
 
       <h2 className="sectiontitle">AI 读图例</h2>
       <section className="card form">
