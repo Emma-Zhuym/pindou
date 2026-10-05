@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { cellAt, LABEL_CELL, MAX_SIDE, MIN_CELL, paintChart } from '../bead/paint'
+import { usePinchZoom } from '../bead/pinch'
 import { CATALOGUE } from '../engine/glyphs'
 import { Icon } from '../Icon'
 import { boardThumb, codeColour, codeOrder, ICONS } from '../shared'
@@ -47,6 +48,8 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
   useEffect(() => {
     if (ref.current) paintChart(ref.current, { cells, cols, rows, cell, board: null, labels })
   }, [cells, cols, rows, cell, labels])
+  const stageRef = useRef<HTMLDivElement>(null)
+  const pinching = usePinchZoom(stageRef, ref, cell, setCell, MIN_CELL, maxCell)
 
   const counts = useMemo(() => Object.entries(countCells(cells)).sort((a, b) => codeOrder(a[0], b[0])), [cells])
   const dirty = cells !== chart.cells
@@ -80,7 +83,7 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
     setCells(next)
   }
   const down = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (tool === 'move') return
+    if (tool === 'move' || pinching()) return
     const i = at(e)
     if (i < 0) return
     if (tool === 'picker') {
@@ -93,6 +96,18 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
     e.currentTarget.setPointerCapture(e.pointerId)
     stroke.current = { before: cells, last: -1, changed: false }
     apply(i)
+  }
+  // a second finger came down mid-stroke: it was a pinch, so the stroke's marks are taken back
+  const move = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const s = stroke.current
+    if (!s) return
+    if (pinching()) {
+      stroke.current = null
+      current.current = s.before
+      setCells(s.before)
+      return
+    }
+    apply(at(e))
   }
   const up = () => {
     const s = stroke.current
@@ -187,9 +202,9 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
 
       </div>
 
-      <div className="beadstage">
+      <div className="beadstage" ref={stageRef}>
         {/* painting takes the touch; moving leaves it to scrolling */}
-        <canvas ref={ref} style={{ touchAction: tool === 'move' ? 'auto' : 'none' }} onPointerDown={down} onPointerMove={(e) => stroke.current && apply(at(e))} onPointerUp={up} onPointerCancel={up} />
+        <canvas ref={ref} style={{ touchAction: tool === 'move' ? 'auto' : 'none' }} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} />
       </div>
 
       <nav className="beadpalette" aria-label="色号">

@@ -1128,6 +1128,8 @@ img.boardview {
 .beadstage {
   flex: 1;
   overflow: auto;
+  /* one finger scrolls; two fingers zoom the chart (usePinchZoom), not the page */
+  touch-action: pan-x pan-y;
   padding: 8px 16px calc(150px + env(safe-area-inset-bottom));
   -webkit-overflow-scrolling: touch;
 }

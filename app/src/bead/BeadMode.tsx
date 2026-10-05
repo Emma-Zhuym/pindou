@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '../Icon'
 import { codeColour, codeOrder, ICONS } from '../shared'
 import { LABEL_CELL, MAX_SIDE, MIN_CELL, paintChart } from './paint'
+import { usePinchZoom } from './pinch'
 import { statusPatch } from '../status'
 import type { Chart } from '../store'
 
@@ -67,18 +68,25 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
   useEffect(() => {
     if (ref.current) paintChart(ref.current, { cells, cols, rows, cell, board, mirror, labels, focus, done, offset: offset ?? undefined })
   }, [cells, cols, rows, board, cell, mirror, labels, focus, done, offset])
+  const stageRef = useRef<HTMLDivElement>(null)
+  const pinching = usePinchZoom(stageRef, ref, cell, setCell, MIN_CELL, maxCell)
 
   // dragging the chart across the pegboard, a whole peg at a time, never off it
   const centred = (n: number) => ({ x: Math.floor((n - cols) / 2), y: Math.floor((n - rows) / 2) })
   const place = (p: { x: number; y: number }) => board && setOffset({ x: Math.min(board - cols, Math.max(0, p.x)), y: Math.min(board - rows, Math.max(0, p.y)) })
   const grab = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!moving || !board) return
+    if (!moving || !board || pinching()) return
     e.currentTarget.setPointerCapture(e.pointerId)
     drag.current = { x: e.clientX, y: e.clientY, from: offset ?? centred(board) }
   }
   const slide = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const d = drag.current
     if (!d) return
+    // a second finger came down: this is a pinch, not a move
+    if (pinching()) {
+      drag.current = null
+      return
+    }
     place({ x: d.from.x + Math.round((e.clientX - d.x) / cell), y: d.from.y + Math.round((e.clientY - d.y) / cell) })
   }
 
@@ -196,7 +204,7 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
 
       </div>
 
-      <div className="beadstage">
+      <div className="beadstage" ref={stageRef}>
         {moving && <p className="hint">在图上拖动，把图案挪到豆板上想放的位置；红线是豆板上印的线，不会跟着动。</p>}
         <canvas ref={ref} style={{ touchAction: moving ? 'none' : 'auto' }} onPointerDown={grab} onPointerMove={slide} onPointerUp={() => (drag.current = null)} onPointerCancel={() => (drag.current = null)} />
       </div>

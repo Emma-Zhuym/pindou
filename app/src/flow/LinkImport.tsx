@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { isNotePage, type NoteImage, parseNote } from '../xhsNote'
 
 /** the iOS Shortcut that fetches a note page and copies it (see SHORTCUT.md) */
 export const SHORTCUT_URL = 'https://github.com/Emma-Zhuym/pindou/blob/main/SHORTCUT.md'
+const SHORTCUT_NAME = '拼豆读笔记'
 /** the signed Shortcut itself, published with the app */
 export const SHORTCUT_FILE = `${import.meta.env.BASE_URL}拼豆读笔记.shortcut`
 
@@ -17,6 +18,23 @@ export function LinkImport({ disabled, onPick }: { disabled: boolean; onPick: (i
   const [note, setNote] = useState<{ title: string; images: NoteImage[] } | null>(null)
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
+  // gone to the Shortcuts app and come back: the result is waiting on the clipboard
+  const [away, setAway] = useState<'gone' | 'back' | null>(null)
+  useEffect(() => {
+    const seen = () => document.visibilityState === 'visible' && setAway((a) => (a === 'gone' ? 'back' : a))
+    document.addEventListener('visibilitychange', seen)
+    return () => document.removeEventListener('visibilitychange', seen)
+  }, [])
+
+  // Runs the Shortcut on the link typed here, else on the clipboard (the link copied in
+  // Xiaohongshu). It copies the note page and shows a notification; coming back, one tap pastes it.
+  function runShortcut() {
+    const link = /https?:\/\/[^\s，。]+/.exec(text)?.[0]
+    const input = link ? `text&text=${encodeURIComponent(link)}` : 'clipboard'
+    setError('')
+    setAway('gone')
+    window.location.href = `shortcuts://run-shortcut?name=${encodeURIComponent(SHORTCUT_NAME)}&input=${input}`
+  }
 
   async function read(input = text) {
     setError('')
@@ -31,7 +49,8 @@ export function LinkImport({ disabled, onPick }: { disabled: boolean; onPick: (i
       return
     }
     if (!import.meta.env.DEV) {
-      setError('网页版不能直接读链接：请在小红书里点"分享"→ 选"拼豆读笔记"快捷指令，跑完后回来点"粘贴快捷指令结果"。')
+      // a link: hand it to the Shortcut
+      runShortcut()
       return
     }
     setBusy('正在读取笔记…')
@@ -56,10 +75,11 @@ export function LinkImport({ disabled, onPick }: { disabled: boolean; onPick: (i
 
   // the Shortcut's result is on the clipboard: a whole page, too long to paste by hand comfortably
   async function paste() {
+    setAway(null)
     try {
       const got = await navigator.clipboard.readText()
       if (!isNotePage(got)) {
-        setError('剪贴板里不是快捷指令读到的笔记。先在小红书里分享给"拼豆读笔记"，跑完再回来点这里。')
+        setError('剪贴板里不是快捷指令读到的笔记。先复制小红书链接，点①让快捷指令读一遍，再点②。')
         return
       }
       read(got)
@@ -87,8 +107,21 @@ export function LinkImport({ disabled, onPick }: { disabled: boolean; onPick: (i
   return (
     <section className="card linkimport">
       <div className="row">
+        <button className="primary small" disabled={disabled || !!busy} onClick={runShortcut}>
+          ① 打开快捷指令
+        </button>
+        <button className={away === 'back' ? 'primary small' : 'small glass'} disabled={disabled || !!busy} onClick={paste}>
+          ② 粘贴结果
+        </button>
+      </div>
+      <p className="hint">
+        {away === 'back'
+          ? '快捷指令跑完了吗？看到"已复制"的通知后，点②。'
+          : '读小红书笔记：先在小红书里点"分享 → 复制链接"，回来点①；看到"已复制"的通知后，回来点②。'}
+      </p>
+      <div className="row">
         <input
-          placeholder={import.meta.env.DEV ? '粘贴小红书分享文案或链接' : '或者把快捷指令的结果粘贴在这里'}
+          placeholder={import.meta.env.DEV ? '粘贴小红书分享文案或链接' : '也可以把链接或快捷指令的结果粘贴在这里'}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && text.trim() && !busy && read()}
@@ -99,9 +132,6 @@ export function LinkImport({ disabled, onPick }: { disabled: boolean; onPick: (i
         </button>
       </div>
       <div className="row">
-        <button className="small glass" disabled={disabled || !!busy} onClick={paste}>
-          粘贴快捷指令结果
-        </button>
         <a className="link sub" href={SHORTCUT_FILE}>
           安装快捷指令
         </a>

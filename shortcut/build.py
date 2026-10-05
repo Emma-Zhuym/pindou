@@ -1,5 +1,5 @@
 """Builds the "拼豆读笔记" iOS Shortcut: from a Xiaohongshu share, fetch the note page as a phone
-browser would and copy its source to the clipboard, for the app's "粘贴快捷指令结果".
+browser would and copy its source to the clipboard, for the app's "② 粘贴结果".
 
     python3 build.py
     shortcuts sign -m anyone -i 拼豆读笔记.unsigned.shortcut -o ../app/public/拼豆读笔记.shortcut
@@ -55,7 +55,7 @@ actions = [
         'WFInput': output(source, 'Text')}},
     {'WFWorkflowActionIdentifier': 'is.workflow.actions.notification', 'WFWorkflowActionParameters': {
         'WFNotificationActionTitle': text('拼豆读笔记'),
-        'WFNotificationActionBody': text('已复制。回到拼豆 App，在"＋"里点「粘贴快捷指令结果」。'),
+        'WFNotificationActionBody': text('已复制。回到拼豆 App，点「② 粘贴结果」。'),
         'WFNotificationActionSound': False}},
 ]
 
