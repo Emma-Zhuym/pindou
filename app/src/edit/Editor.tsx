@@ -31,7 +31,8 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
   const [labels, setLabels] = useState(chart.progress?.labels ?? true)
   // the colour card, open for the brush or for the swap's target
   const [card, setCard] = useState<'brush' | 'swap' | null>(null)
-  const [swap, setSwap] = useState<{ from: string; to: string } | null>(null)
+  // every cell of one code changed to another (replace), or two codes trading places (exchange)
+  const [swap, setSwap] = useState<{ from: string; to: string; exchange?: boolean } | null>(null)
   const [saving, setSaving] = useState(false)
   const fitCell = Math.floor(Math.min(document.documentElement.clientWidth - 40, 900) / (Math.max(cols, rows) + 2))
   const [cell, setCell] = useState(Math.max(MIN_CELL, fitCell))
@@ -116,10 +117,12 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
   }
 
   const swapCount = swap ? cells.filter((c) => c === swap.from).length : 0
+  const toCount = swap ? cells.filter((c) => c === swap.to).length : 0
   const doSwap = () => {
     if (!swap || swap.from === swap.to || !(swap.to in CATALOGUE)) return
+    const { from, to, exchange } = swap
     commit(
-      cells.map((c) => (c === swap.from ? swap.to : c)),
+      cells.map((c) => (c === from ? to : exchange && c === to ? from : c)),
       cells,
     )
     setSwap(null)
@@ -238,6 +241,14 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
         <div className="sheet" onClick={() => setSwap(null)}>
           <div className="sheetbody form" onClick={(e) => e.stopPropagation()}>
             <h2>批量换色</h2>
+            <div className="segmented full" role="radiogroup" aria-label="换法">
+              <button role="radio" aria-checked={!swap.exchange} aria-selected={!swap.exchange} onClick={() => setSwap({ ...swap, exchange: false })}>
+                全部换成
+              </button>
+              <button role="radio" aria-checked={!!swap.exchange} aria-selected={!!swap.exchange} onClick={() => setSwap({ ...swap, exchange: true })}>
+                两色互换
+              </button>
+            </div>
             <label className="field">
               <span>把这个色号</span>
               <select value={swap.from} onChange={(e) => setSwap({ ...swap, from: e.target.value })}>
@@ -249,7 +260,7 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
               </select>
             </label>
             <div className="field">
-              <span>全部换成（任意 MARD 色号）</span>
+              <span>{swap.exchange ? '和这个色号互换' : '全部换成（任意 MARD 色号）'}</span>
               <div className="row">
                 <input value={swap.to} onChange={(e) => setSwap({ ...swap, to: e.target.value.toUpperCase().trim().replace(/^([A-Z]+)0+(\d)/, '$1$2') })} aria-label="换成的色号" />
                 <button className="chip" onClick={() => setCard('swap')}>
@@ -260,7 +271,7 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
             {swap.to && !(swap.to in CATALOGUE) && <p className="sub bad">「{swap.to}」不是 MARD 色号</p>}
             {swap.to in CATALOGUE && swap.from !== swap.to && (
               <p className="hint">
-                会把 {swapCount} 颗 {swap.from} 换成 {swap.to}
+                {swap.exchange ? `${swapCount} 颗 ${swap.from} 和 ${toCount} 颗 ${swap.to} 互换` : `会把 ${swapCount} 颗 ${swap.from} 换成 ${swap.to}`}
                 <span className="swatch" style={{ background: codeColour(swap.from), marginLeft: 8 }} /> →
                 <span className="swatch" style={{ background: codeColour(swap.to), marginLeft: 4 }} />
               </p>

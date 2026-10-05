@@ -806,6 +806,8 @@ function CodesPage(props: {
   const [newCount, setNewCount] = useState('')
   // where the add row is open: under this group's row, or null for the end of the list
   const [insertAt, setInsertAt] = useState<number | null>(null)
+  // a whole code changed into another, or two codes swapped
+  const [bulk, setBulk] = useState<{ mode: 'recolour' | 'swap'; a: string; b: string } | null>(null)
 
   // Legends are printed either by count or by code, so the list can follow either. The order is
   // recomputed when the mode changes or an edit is finished, not on every keystroke, so a row
@@ -862,6 +864,17 @@ function CodesPage(props: {
     if (newCount.trim()) setCount(addCode, newCount)
     setNewCode('')
     setNewCount('')
+  }
+
+  const bulkTo = bulk ? bulk.b.toUpperCase().trim().replace(/^([A-Z]+)0+(\d)/, '$1$2') : ''
+  const bulkOk = !!bulk && !!bulk.a && bulkTo in CATALOGUE && bulkTo !== bulk.a && (bulk.mode === 'recolour' || live.includes(bulkTo))
+  const applyBulk = () => {
+    if (!bulk || !bulkOk) return
+    const { mode, a } = bulk
+    const next = names.map((n) => (n === a ? bulkTo : mode === 'swap' && n === bulkTo ? a : n))
+    onNames(next)
+    setOrder(sortedBy(sort, next))
+    setBulk(null)
   }
 
   const found = [...counts.values()].reduce((x, y) => x + y, 0)
@@ -959,7 +972,66 @@ function CodesPage(props: {
         <span className="sub">
           {live.length} 色，识别 {found} 颗{printed.length > 0 && `；图例已填 ${printed.length} 色共 ${printedTotal} 颗，${mismatched ? `${mismatched} 个对不上` : '全部对上'}`}
         </span>
+        <div className="row">
+          <button className="small glass" onClick={() => setBulk({ mode: 'recolour', a: live[0] ?? '', b: '' })}>
+            整组改色
+          </button>
+          <button className="small glass" disabled={live.length < 2} onClick={() => setBulk({ mode: 'swap', a: live[0] ?? '', b: live[1] ?? '' })}>
+            交换两组
+          </button>
+        </div>
       </div>
+
+      {bulk && (
+        <div className="sheet" onClick={() => setBulk(null)}>
+          <div className="sheetbody form" onClick={(e) => e.stopPropagation()}>
+            <h2>{bulk.mode === 'swap' ? '交换两组' : '整组改色'}</h2>
+            <label className="field">
+              <span>{bulk.mode === 'swap' ? '这一组' : '把这个色号的所有格子'}</span>
+              <select value={bulk.a} onChange={(e) => setBulk({ ...bulk, a: e.target.value })}>
+                {[...live].sort(codeOrder).map((c) => (
+                  <option key={c} value={c}>
+                    {c}（{counts.get(c) ?? 0} 颗）
+                  </option>
+                ))}
+              </select>
+            </label>
+            {bulk.mode === 'swap' ? (
+              <label className="field">
+                <span>和这一组对调</span>
+                <select value={bulk.b} onChange={(e) => setBulk({ ...bulk, b: e.target.value })}>
+                  {[...live].sort(codeOrder).map((c) => (
+                    <option key={c} value={c}>
+                      {c}（{counts.get(c) ?? 0} 颗）
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <label className="field">
+                <span>都改成</span>
+                <input value={bulk.b} placeholder="色号，如 H2" onChange={(e) => setBulk({ ...bulk, b: e.target.value })} aria-label="改成的色号" />
+              </label>
+            )}
+            {bulk.b && !(bulkTo in CATALOGUE) && <p className="sub bad">「{bulk.b}」不是 MARD 色号</p>}
+            {bulkOk && (
+              <p className="hint">
+                {bulk.mode === 'swap'
+                  ? `${bulk.a} 的 ${counts.get(bulk.a) ?? 0} 颗和 ${bulkTo} 的 ${counts.get(bulkTo) ?? 0} 颗互换色号。`
+                  : `${bulk.a} 的 ${counts.get(bulk.a) ?? 0} 颗都改成 ${bulkTo}${live.includes(bulkTo) ? `，和原来的 ${bulkTo} 合成一组` : ''}。`}
+              </p>
+            )}
+            <div className="row end">
+              <button className="link" onClick={() => setBulk(null)}>
+                取消
+              </button>
+              <button className="primary small" disabled={!bulkOk} onClick={applyBulk}>
+                {bulk.mode === 'swap' ? '交换' : '改'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <section className="card codelist">
         <div className="coderow head">
