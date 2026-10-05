@@ -5,6 +5,7 @@ import { CATALOGUE } from '../engine/glyphs'
 import { type Extent, findBoard, findGrid, type Grid, type Raster } from '../engine/grid'
 import { findLegend, outsideBoard, type Rect } from '../engine/legendArea'
 import { applyReading, fitList, needsHelp, type Reading, readLocally } from '../engine/legendRead'
+import { stack } from '../engine/cells'
 import { recognise, type Recognition } from '../engine/recognize'
 import { Icon } from '../Icon'
 import { LinkImport } from './LinkImport'
@@ -339,7 +340,7 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
           />
         )}
         {step === 'codes' && img && rec && (
-          <CodesPage img={img} rec={rec} names={names} counts={counts} legend={legend} legendRect={legendRect} onNames={setNames} onLegend={setLegend} onLegendRect={setLegendRect} onAskAi={askAi} onNext={() => setStep('wall')} />
+          <CodesPage img={img} rec={rec} names={names} assign={assign} counts={counts} legend={legend} legendRect={legendRect} onNames={setNames} onLegend={setLegend} onLegendRect={setLegendRect} onAskAi={askAi} onNext={() => setStep('wall')} />
         )}
         {step === 'wall' && img && rec && <WallPage img={img} rec={rec} names={names} assign={assign} counts={counts} legend={legend} onAssign={setAssign} onNames={setNames} onAskCells={askCells} />}
         {step === 'list' && img && rec && <ListPage counts={counts} legend={legend} onSave={() => setAsking(true)} />}
@@ -786,6 +787,7 @@ function CodesPage(props: {
   img: HTMLImageElement
   rec: Recognition
   names: string[]
+  assign: Int16Array
   counts: Map<string, number>
   legend: Record<string, number>
   legendRect: Rect | null
@@ -795,8 +797,29 @@ function CodesPage(props: {
   onAskAi: () => Promise<string[]>
   onNext: () => void
 }) {
-  const { img, rec, names, counts, legend, legendRect, onNames, onLegend, onLegendRect, onAskAi, onNext } = props
+  const { img, rec, names, assign, counts, legend, legendRect, onNames, onLegend, onLegendRect, onAskAi, onNext } = props
   const [cropping, setCropping] = useState(false)
+  // each row's stacked print and colour, from the cells it has now: cells move between groups
+  // (the model naming groups, cells corrected on the review page) after the recogniser drew them
+  const current = useMemo(() => {
+    const members: number[][] = names.map(() => [])
+    assign.forEach((g, i) => {
+      if (g >= 0 && members[g] && rec.cells.share[i] > 0.06) members[g].push(i)
+    })
+    const { fill } = rec.cells
+    return members.map((m, g) => {
+      if (!m.length) return null
+      let r = 0
+      let gr = 0
+      let b = 0
+      for (const i of m) {
+        r += fill[i * 3]
+        gr += fill[i * 3 + 1]
+        b += fill[i * 3 + 2]
+      }
+      return { label: stack(rec.cells, m.slice(0, 400)), colour: { r: r / m.length, g: gr / m.length, b: b / m.length } }
+    })
+  }, [names, assign, rec])
   const [ai] = useState<AiSettings>(loadAiSettings)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
@@ -1044,7 +1067,7 @@ function CodesPage(props: {
         {order
           .filter((i) => names[i])
           .map((i) => {
-            const g = rec.groups[i]
+            const g = current[i]
             const code = names[i]
             const valid = code in CATALOGUE
             const n = counts.get(code) ?? 0
@@ -1053,7 +1076,7 @@ function CodesPage(props: {
             return (
               <Fragment key={i}>
               <div className="coderow">
-                {g ? <Label label={g.label} px={52} /> : <span className="nolabel">手动添加</span>}
+                {g ? <Label label={g.label} px={52} /> : <span className="nolabel">{rec.groups[i] ? '没有格子' : '手动添加'}</span>}
                 <div className="codecell">
                   <span className="swatch" style={{ background: css(g?.colour ?? CATALOGUE[code] ?? GREY) }} />
                   <input
