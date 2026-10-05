@@ -807,7 +807,7 @@ function CodesPage(props: {
       if (g >= 0 && members[g] && rec.cells.share[i] > 0.06) members[g].push(i)
     })
     const { fill } = rec.cells
-    return members.map((m, g) => {
+    return members.map((m) => {
       if (!m.length) return null
       let r = 0
       let gr = 0
