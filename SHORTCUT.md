@@ -12,14 +12,14 @@ https://emma-zhuym.github.io/pindou/拼豆读笔记.shortcut
 
 1. 在小红书笔记里点"分享"，在分享菜单里选"拼豆读笔记"。
    - 也可以先点"复制链接"，再从快捷指令 App 或主屏幕运行它，它会读剪贴板里的链接。
-2. 第一次运行时，iPhone 会问是否允许连接 xhslink.cn、xiaohongshu.com，选"允许"。
+2. 第一次运行时，会问是否允许连接 xhslink.cn、xiaohongshu.com，以及是否允许拷贝到剪贴板，都选"始终允许"。
 3. 看到"已复制"的通知后，回到拼豆 App，点"＋"，再点「粘贴快捷指令结果」。
 4. App 会列出笔记里的所有图，点图纸那张导入。如果要镜像熨烫，就选镜像版。
 
 ## 它做了什么（也可以照着自己搭）
 
 1. 接收：共享表单的文本和 URL；没有输入时取剪贴板
-2. 从输入获取 URL，取第一项
+2. 用"匹配文本"从输入里找出 `https://` 开头的链接（规则 `https?://[A-Za-z0-9./?=&_%#:~+-]+`），取第一项。（"从输入获取 URL"在这里取不到东西，所以不用它。）
 3. 获取该 URL 的内容：方法 GET，请求头 `User-Agent` 设为手机 Safari 的标识：
    `Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1`
    （不设的话，小红书会要求登录）

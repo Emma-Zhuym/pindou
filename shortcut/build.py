@@ -32,11 +32,14 @@ def in_text(uid, name):
 ids = [str(uuid.uuid4()).upper() for _ in range(6)]
 links, first, page, named, source, _ = ids
 actions = [
-    # the link in what was shared (share text or URL)
-    {'WFWorkflowActionIdentifier': 'is.workflow.actions.detect.link', 'WFWorkflowActionParameters': {
-        'UUID': links, 'WFInput': {'Value': {'Type': 'ExtensionInput'}, 'WFSerializationType': 'WFTextTokenAttachment'}}},
+    # the link in what was shared (share text or URL). "Get URLs from Input" finds nothing in
+    # an input passed this way, so the link is matched as text.
+    {'WFWorkflowActionIdentifier': 'is.workflow.actions.text.match', 'WFWorkflowActionParameters': {
+        'UUID': links, 'WFMatchTextPattern': r'https?://[A-Za-z0-9./?=&_%#:~+-]+', 'WFMatchTextCaseSensitive': False,
+        'text': {'Value': {'string': '\ufffc', 'attachmentsByRange': {'{0, 1}': {'Type': 'ExtensionInput'}}},
+                 'WFSerializationType': 'WFTextTokenString'}}},
     {'WFWorkflowActionIdentifier': 'is.workflow.actions.getitemfromlist', 'WFWorkflowActionParameters': {
-        'UUID': first, 'WFInput': output(links, 'URLs'), 'WFItemSpecifier': 'First Item'}},
+        'UUID': first, 'WFInput': output(links, 'Matches'), 'WFItemSpecifier': 'First Item'}},
     # the note page, asked for as a phone browser (a desktop one is sent to the login page)
     {'WFWorkflowActionIdentifier': 'is.workflow.actions.downloadurl', 'WFWorkflowActionParameters': {
         'UUID': page, 'WFURL': in_text(first, 'Item from List'), 'WFHTTPMethod': 'GET', 'ShowHeaders': True,
@@ -62,7 +65,7 @@ shortcut = {
     'WFWorkflowMinimumClientVersionString': '900',
     'WFWorkflowIcon': {'WFWorkflowIconStartColor': 4271458815, 'WFWorkflowIconGlyphNumber': 59511},
     'WFWorkflowTypes': ['ActionExtension'],
-    'WFWorkflowInputContentItemClasses': ['WFURLContentItem', 'WFStringContentItem'],
+    'WFWorkflowInputContentItemClasses': ['WFURLContentItem', 'WFStringContentItem', 'WFGenericFileContentItem'],
     'WFWorkflowImportQuestions': [],
     # run from the home screen or the app (not the share sheet): read the link copied in Xiaohongshu
     'WFWorkflowNoInputBehavior': {'Name': 'WFWorkflowNoInputBehaviorGetClipboard', 'Parameters': {}},
