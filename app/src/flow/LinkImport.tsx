@@ -4,11 +4,25 @@ import { isNotePage, type NoteImage, parseNote } from '../xhsNote'
 /** the iOS Shortcut that fetches a note page and copies it (see SHORTCUT.md) */
 export const SHORTCUT_URL = 'https://github.com/Emma-Zhuym/pindou/blob/main/SHORTCUT.md'
 const SHORTCUT_NAME = '拼豆读笔记'
+const SOURCE_KEY = 'pindou.import.source-url'
 /** the signed Shortcut itself, published with the app */
 export const SHORTCUT_FILE = `${import.meta.env.BASE_URL}拼豆读笔记.shortcut`
 
 function extractExternalUrl(text: string): string | undefined {
   return /https?:\/\/[^\s，。]+/.exec(text)?.[0]
+}
+
+function rememberSource(url?: string) {
+  try {
+    if (url) sessionStorage.setItem(SOURCE_KEY, url)
+    else sessionStorage.removeItem(SOURCE_KEY)
+  } catch {
+    // Private browsing may deny session storage; the in-memory state still works.
+  }
+}
+
+function rememberedSource() {
+  try { return sessionStorage.getItem(SOURCE_KEY) ?? '' } catch { return '' }
 }
 
 /**
@@ -33,16 +47,16 @@ export function LinkImport({ disabled, onPick }: { disabled: boolean; onPick: (i
 
   // Runs the Shortcut on the link typed here, else on the clipboard (the link copied in
   // Xiaohongshu). It copies the note page and shows a notification; coming back, one tap pastes it.
-  async function runShortcut() {
-    let link = extractExternalUrl(text)
-    if (!link) {
-      try {
-        link = extractExternalUrl(await navigator.clipboard.readText())
-      } catch {
-        // The Shortcut can still read the clipboard; the link is simply unavailable to save.
-      }
+  function runShortcut() {
+    const link = extractExternalUrl(text)
+    if (!link && navigator.clipboard) {
+      // Keep the navigation synchronous so iOS still treats it as the button's user gesture.
+      void navigator.clipboard.readText().then((clipboard) => {
+        const copied = extractExternalUrl(clipboard)
+        if (copied) { rememberSource(copied); setSourceUrl(copied) }
+      }).catch(() => {})
     }
-    if (link) setSourceUrl(link)
+    if (link) { rememberSource(link); setSourceUrl(link) }
     const input = link ? `text&text=${encodeURIComponent(link)}` : 'clipboard'
     setError('')
     setAway('gone')
@@ -53,7 +67,11 @@ export function LinkImport({ disabled, onPick }: { disabled: boolean; onPick: (i
     setError('')
     setNote(null)
     // A Shortcut result is a note page, so keep the link recorded by runShortcut().
-    if (!isNotePage(input)) setSourceUrl(extractExternalUrl(input) ?? '')
+    if (!isNotePage(input)) {
+      const link = extractExternalUrl(input)
+      rememberSource(link)
+      setSourceUrl(link ?? '')
+    }
     if (isNotePage(input)) {
       try {
         setNote(parseNote(input))
@@ -97,6 +115,8 @@ export function LinkImport({ disabled, onPick }: { disabled: boolean; onPick: (i
         setError('剪贴板里不是快捷指令读到的笔记。先复制小红书链接，点①让快捷指令读一遍，再点②。')
         return
       }
+      const remembered = rememberedSource()
+      if (remembered) setSourceUrl(remembered)
       read(got)
     } catch {
       setError('读不了剪贴板：请在下面的框里长按 →"粘贴"，再点"读取"。')
@@ -109,7 +129,9 @@ export function LinkImport({ disabled, onPick }: { disabled: boolean; onPick: (i
     try {
       const res = await fetch(im.url)
       if (!res.ok) throw new Error(`下载失败（${res.status}）`)
-      onPick(await res.blob(), note?.title ?? '', sourceUrl || undefined)
+      onPick(await res.blob(), note?.title ?? '', sourceUrl || rememberedSource() || undefined)
+      rememberSource()
+      setSourceUrl('')
       setNote(null)
       setText('')
     } catch (e) {
