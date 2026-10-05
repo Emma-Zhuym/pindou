@@ -1336,6 +1336,21 @@ function WallPage(props: {
     if (!next.delete(cell)) next.add(cell)
     setSelected(next)
   }
+  // a whole wall at once (as filtered): all of it chosen, or all of it let go if it already was
+  const allChosen = (cells: number[]) => cells.length > 0 && cells.every((c) => selected.has(c))
+  const toggleAll = (cells: number[]) => {
+    const next = new Set(selected)
+    if (allChosen(cells)) for (const c of cells) next.delete(c)
+    else for (const c of cells) next.add(c)
+    setSelected(next)
+  }
+  const unsureCells = useMemo(() => {
+    const out: number[] = []
+    assign.forEach((g, i) => {
+      if (g >= 0 && rec.unsure[i]) out.push(i)
+    })
+    return out
+  }, [assign, rec])
   const move = (code: string | null) => {
     let g = code === null ? -1 : names.indexOf(code)
     if (code !== null && g < 0) {
@@ -1361,6 +1376,9 @@ function WallPage(props: {
               <span className="swatch blank" />
               <b>空格</b>
               <span className="sub">{blanks.length} 格，格子里有印字的排在最前；有色号的点一下改掉</span>
+              <button className="link selectall" onClick={() => toggleAll(shownBlanks)}>
+                {allChosen(shownBlanks) ? '取消全选' : `全选 ${shownBlanks.length}`}
+              </button>
             </header>
             <Tiles img={img} rec={rec} cells={open ? shownBlanks : shownBlanks.slice(0, BLANK_LIMIT)} selected={selected} onPick={toggle} />
             {shownBlanks.length > BLANK_LIMIT && (
@@ -1385,6 +1403,9 @@ function WallPage(props: {
               <span className="sub">
                 {counts.get(code)} 颗{want !== undefined && (want === counts.get(code) ? '，与图例一致' : `，图例 ${want}`)}
               </span>
+              <button className="link selectall" onClick={() => toggleAll(cells)}>
+                {allChosen(cells) ? '取消全选' : `全选 ${cells.length}`}
+              </button>
             </header>
             <Tiles img={img} rec={rec} cells={shown} selected={selected} onPick={toggle} />
             {cells.length > LIMIT && (
@@ -1401,9 +1422,16 @@ function WallPage(props: {
   return (
     <div className="page">
       <p className="hint">每一面墙是被认成同一个色号的全部格子，直接从原图裁出来。混进去的错格子点一下改掉。橙色框是程序没把握的，排在最前面。</p>
-      <label className="toggle">
-        <input type="checkbox" checked={onlyUnsure} onChange={(e) => setOnlyUnsure(e.target.checked)} /> 只看没把握的
-      </label>
+      <div className="row">
+        <label className="toggle">
+          <input type="checkbox" checked={onlyUnsure} onChange={(e) => setOnlyUnsure(e.target.checked)} /> 只看没把握的
+        </label>
+        {unsureCells.length > 0 && (
+          <button className="link" onClick={() => toggleAll(unsureCells)}>
+            {allChosen(unsureCells) ? '取消全选' : `全选没把握的 ${unsureCells.length} 格`}
+          </button>
+        )}
+      </div>
       {ai.key && ai.model && doubtful > 0 && (
         <div className="row">
           <button

@@ -940,6 +940,7 @@ img.boardview {
 }
 .wall header b {
   font-size: 17px;
+  white-space: nowrap;
 }
 .tiles {
   overflow: hidden;
@@ -1791,4 +1792,11 @@ img.boardview {
 /* the recognition steps' bar: the page fades out under it, so nothing shows between its controls */
 .flow .flowbar {
   background: linear-gradient(to bottom, var(--bg) 78%, color-mix(in srgb, var(--bg) 0%, transparent));
+}
+/* review walls: choose a whole wall at once */
+.wall header .selectall {
+  margin-left: auto;
+  min-height: 0;
+  font-size: 14px;
+  white-space: nowrap;
 }
