@@ -2,11 +2,21 @@ import { type RefObject, useEffect, useLayoutEffect, useRef } from 'react'
 
 /**
  * Two-finger pinch on the chart: changes the cell size, keeping the spot between the fingers where
- * it was. The page scrolls up and down, the stage left and right, so both are adjusted after the
+ * it was. The page scrolls up and down and the stage left and right (or the stage both ways), so
+ * both are adjusted after the
  * chart is redrawn at its new size. The browser's own page zoom is held off while pinching.
  * Call it after the effect that paints the chart, so its scrolling sees the new size.
  */
-export function usePinchZoom(stage: RefObject<HTMLElement | null>, canvas: RefObject<HTMLCanvasElement | null>, cell: number, setCell: (n: number) => void, min: number, max: number) {
+export function usePinchZoom(
+  stage: RefObject<HTMLElement | null>,
+  canvas: RefObject<HTMLCanvasElement | null>,
+  cell: number,
+  setCell: (n: number) => void,
+  min: number,
+  max: number,
+  /** the stage scrolls both ways itself (bead mode, for its frozen rulers), not the page */
+  selfScroll = false,
+) {
   // the latest values, for listeners added once
   const now = useRef({ cell, min, max, setCell })
   useLayoutEffect(() => {
@@ -66,9 +76,12 @@ export function usePinchZoom(stage: RefObject<HTMLElement | null>, canvas: RefOb
     anchor.current = null
     const dx = r.left + a.u * cell - a.x
     const dy = r.top + a.v * cell - a.y
-    stage.current?.scrollBy(dx, 0)
-    window.scrollBy(0, dy)
-  }, [cell, stage, canvas])
+    if (selfScroll) stage.current?.scrollBy(dx, dy)
+    else {
+      stage.current?.scrollBy(dx, 0)
+      window.scrollBy(0, dy)
+    }
+  }, [cell, stage, canvas, selfScroll])
 
   /** true while two fingers are down: one-finger tools should let go */
   return () => start.current !== null

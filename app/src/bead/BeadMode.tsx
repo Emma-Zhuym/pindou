@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '../Icon'
 import { codeColour, codeOrder, ICONS } from '../shared'
-import { LABEL_CELL, MAX_SIDE, MIN_CELL, paintChart } from './paint'
+import { LABEL_CELL, layout, MAX_SIDE, MIN_CELL, paintChart, paintRulers } from './paint'
 import { usePinchZoom } from './pinch'
 import { statusPatch } from '../status'
 import type { Chart } from '../store'
@@ -9,6 +9,8 @@ import type { Chart } from '../store'
 /** The pegboards sold: square, this many pegs a side. */
 const BOARDS = [52, 78, 104] as const
 const pad = (n: number) => String(n).padStart(2, '0')
+/** the frozen rulers' thickness, CSS pixels */
+const RULER = 24
 const clock = (s: number) => `${Math.floor(s / 3600)}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}`
 
 /**
@@ -37,8 +39,12 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
   // start with the whole pegboard on screen (page gutters and scrollbar left out)
   const fitCell = Math.floor(Math.min(document.documentElement.clientWidth - 40, 900) / (side + 2))
   const [cell, setCell] = useState(Math.max(MIN_CELL, fitCell))
+  const size = layout({ cols, rows, cell, board, rulers: false })
   const maxCell = Math.max(MIN_CELL, Math.floor(MAX_SIDE / (side + 2)))
   const ref = useRef<HTMLCanvasElement>(null)
+  // the rulers, kept in view at the top and left of the stage while the chart scrolls under them
+  const topRef = useRef<HTMLCanvasElement>(null)
+  const leftRef = useRef<HTMLCanvasElement>(null)
 
   const counts = useMemo(() => {
     const m = new Map<string, number>()
@@ -68,10 +74,13 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
   }, [running]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (ref.current) paintChart(ref.current, { cells, cols, rows, cell, board, mirror, labels, focus, done, offset: offset ?? undefined })
+    const o = { cells, cols, rows, cell, board, mirror, labels, focus, done, offset: offset ?? undefined, rulers: false }
+    if (ref.current) paintChart(ref.current, o)
+    const ink = getComputedStyle(document.documentElement).getPropertyValue('--sub').trim() || '#6e6e73'
+    if (topRef.current && leftRef.current) paintRulers(topRef.current, leftRef.current, o, RULER, ink)
   }, [cells, cols, rows, board, cell, mirror, labels, focus, done, offset])
   const stageRef = useRef<HTMLDivElement>(null)
-  const pinching = usePinchZoom(stageRef, ref, cell, setCell, MIN_CELL, maxCell)
+  const pinching = usePinchZoom(stageRef, ref, cell, setCell, MIN_CELL, maxCell, true)
 
   // dragging the chart across the pegboard, a whole peg at a time, never off it
   const centred = (n: number) => ({ x: Math.floor((n - cols) / 2), y: Math.floor((n - rows) / 2) })
@@ -127,7 +136,7 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
   }
 
   return (
-    <div className="bead">
+    <div className="bead frozen">
       <div className="beadtop">
         <header className="beadhead">
           <button className="circle glass" aria-label="退出拼豆模式" onClick={close}>
@@ -241,7 +250,12 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
             </button>
           </div>
         )}
-        <canvas ref={ref} style={{ touchAction: moving ? 'none' : 'auto' }} onPointerDown={grab} onPointerMove={slide} onPointerUp={() => (drag.current = null)} onPointerCancel={() => (drag.current = null)} />
+        <div className="beadgrid" style={{ gridTemplateColumns: `${RULER}px ${size.width}px`, gridTemplateRows: `${RULER}px ${size.height}px` }}>
+          <div className="rulercorner" />
+          <canvas ref={topRef} className="ruler top" aria-hidden="true" />
+          <canvas ref={leftRef} className="ruler left" aria-hidden="true" />
+          <canvas ref={ref} style={{ touchAction: moving ? 'none' : 'auto' }} onPointerDown={grab} onPointerMove={slide} onPointerUp={() => (drag.current = null)} onPointerCancel={() => (drag.current = null)} />
+        </div>
       </div>
 
       <nav className="beadpalette" aria-label="色号">

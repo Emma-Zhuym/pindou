@@ -26,6 +26,8 @@ export interface PaintOptions {
   done?: string[]
   /** where the chart sits on the pegboard, in pegs from its top left; centred when absent */
   offset?: { x: number; y: number }
+  /** false: no ruler margin; the numbers are drawn apart (paintRulers) so they can stay in view */
+  rulers?: boolean
 }
 
 /** Text colour that reads on a bead colour. */
@@ -36,14 +38,15 @@ export const inkOn = (code: string) => {
   return 0.299 * r + 0.587 * g + 0.114 * b > 140 ? 'rgba(0,0,0,0.75)' : 'rgba(255,255,255,0.9)'
 }
 
-/** Where things are, in CSS pixels: a two-cell ruler margin, then the pegboard or the chart. */
-export function layout(o: Pick<PaintOptions, 'cols' | 'rows' | 'cell' | 'board' | 'offset'>) {
+/** Where things are, in CSS pixels: a two-cell ruler margin (unless the rulers are drawn apart),
+ *  then the pegboard or the chart. */
+export function layout(o: Pick<PaintOptions, 'cols' | 'rows' | 'cell' | 'board' | 'offset' | 'rulers'>) {
   const w = o.board ?? o.cols
   const h = o.board ?? o.rows
-  const m = 2 * o.cell
+  const m = o.rulers === false ? 0 : 2 * o.cell
   return {
-    width: (w + 2) * o.cell,
-    height: (h + 2) * o.cell,
+    width: w * o.cell + m,
+    height: h * o.cell + m,
     margin: m,
     // the chart on the pegboard: where it was put, else centred
     x0: m + (o.offset?.x ?? Math.floor((w - o.cols) / 2)) * o.cell,
@@ -168,6 +171,7 @@ export function paintChart(canvas: HTMLCanvasElement, o: PaintOptions) {
     ctx.strokeStyle = '#8e8e93'
     ctx.strokeRect(m, m, L.w * cell, L.h * cell)
   }
+  if (o.rulers === false) return
   // rulers every 5: the pegboard's lines when on one, else the chart's columns and rows
   ctx.fillStyle = '#6e6e73'
   ctx.font = `${Math.max(9, Math.floor(cell * 0.7))}px -apple-system, sans-serif`
@@ -178,4 +182,56 @@ export function paintChart(canvas: HTMLCanvasElement, o: PaintOptions) {
     for (let k = 5; k <= cols; k += 5) ctx.fillText(String(k), x0 + ((mirror ? cols - k : k - 1) + 0.5) * cell, m - cell * 0.8)
     for (let k = 5; k <= rows; k += 5) ctx.fillText(String(k), m - cell * 0.9, y0 + (k - 0.5) * cell)
   }
+}
+
+/** One number on a ruler: its place along the ruler (CSS pixels from the chart's top or left
+ *  edge) and whether it is a fifth, printed bold. */
+function marks(o: PaintOptions, across: boolean): { at: number; n: number; bold: boolean }[] {
+  const { cell, board, mirror = false } = o
+  const L = layout({ ...o, rulers: false })
+  const out: { at: number; n: number; bold: boolean }[] = []
+  if (board) {
+    // the pegboard's own numbering, inside its blank border
+    const inset = BOARD_INSET[board] ?? 0
+    for (let k = 1; k <= board - 2 * inset; k++) out.push({ at: (inset + k - 0.5) * cell, n: k, bold: k % 5 === 0 })
+  } else {
+    const count = across ? o.cols : o.rows
+    const start = across ? L.x0 : L.y0
+    for (let k = 1; k <= count; k++) out.push({ at: start + ((across && mirror ? count - k : k - 1) + 0.5) * cell, n: k, bold: k % 5 === 0 })
+  }
+  return out
+}
+
+/**
+ * The column numbers along `top` and the row numbers down `left`, matching a chart painted with
+ * `rulers: false`: kept apart so the page can hold them in view while the chart scrolls. Every
+ * fifth number always; every number once the cells are big enough to read them.
+ */
+export function paintRulers(top: HTMLCanvasElement, left: HTMLCanvasElement, o: PaintOptions, thick: number, ink: string) {
+  const L = layout({ ...o, rulers: false })
+  const each = o.cell >= 18
+  const draw = (canvas: HTMLCanvasElement, w: number, h: number, across: boolean) => {
+    const dpr = Math.min(window.devicePixelRatio || 1, MAX_SIDE / Math.max(w, h))
+    canvas.width = Math.round(w * dpr)
+    canvas.height = Math.round(h * dpr)
+    canvas.style.width = `${w}px`
+    canvas.style.height = `${h}px`
+    const ctx = canvas.getContext('2d')!
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.clearRect(0, 0, w, h)
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    for (const m of marks(o, across)) {
+      if (!m.bold && !each) continue
+      ctx.fillStyle = ink
+      ctx.globalAlpha = m.bold ? 1 : 0.55
+      const size = m.bold ? Math.min(13, Math.max(10, o.cell * 0.55)) : Math.min(11, o.cell * 0.45)
+      ctx.font = `${m.bold ? 600 : 400} ${size}px -apple-system, sans-serif`
+      if (across) ctx.fillText(String(m.n), m.at, h / 2)
+      else ctx.fillText(String(m.n), w / 2, m.at)
+    }
+    ctx.globalAlpha = 1
+  }
+  draw(top, L.width, thick, true)
+  draw(left, thick, L.height, false)
 }

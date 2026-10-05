@@ -1168,6 +1168,45 @@ img.boardview {
   margin: 0 auto;
   border-radius: 12px;
 }
+/* bead mode: the stage scrolls both ways under a fixed header, so its rulers can stay in view */
+.bead.frozen {
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+.bead.frozen .beadstage {
+  min-height: 0;
+  padding: 0 0 calc(150px + env(safe-area-inset-bottom));
+}
+.beadgrid {
+  display: grid;
+  width: max-content;
+  margin: 0 auto;
+}
+.beadgrid canvas {
+  margin: 0;
+  border-radius: 0;
+}
+.ruler,
+.rulercorner {
+  background: var(--bg);
+}
+.ruler.top {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.ruler.left {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+}
+.rulercorner {
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 3;
+}
 .beadpalette {
   position: fixed;
   left: 0;
