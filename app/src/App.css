@@ -1,5 +1,5 @@
-/* iOS 26 look: content on a quiet background, controls floating above it on glass, capsule
-   shapes, large concentric corners. */
+/* iOS look: content on a quiet background, controls floating above it on one kind of glass
+   (see-through and blurred, a hairline edge, never a drop shadow), capsule shapes, large corners. */
 :root {
   --bg: #f3f4f2;
   --card: #ffffff;
@@ -7,12 +7,13 @@
   --sub: #6b6b70;
   --line: rgba(60, 60, 67, 0.13);
   --fill: rgba(120, 120, 128, 0.12);
+  --selected: #ffffff; /* the chosen segment */
   --accent: #007aff;
   --red: #d70015;
   --orange: #c93400;
-  --glass: rgba(255, 255, 255, 0.62);
-  --glass-edge: rgba(255, 255, 255, 0.7);
-  --glass-shadow: 0 10px 36px rgba(0, 0, 0, 0.13), 0 1px 3px rgba(0, 0, 0, 0.06);
+  --glass: rgba(255, 255, 255, 0.66);
+  --glass-edge: rgba(60, 60, 67, 0.12);
+  --glass-filter: blur(24px) saturate(180%);
   --r-card: 26px;
   --r-control: 14px;
   color-scheme: light dark;
@@ -25,12 +26,12 @@
     --sub: #98989f;
     --line: rgba(84, 84, 88, 0.6);
     --fill: rgba(120, 120, 128, 0.26);
+    --selected: #636366;
     --accent: #0a84ff;
     --red: #ff453a;
     --orange: #ff9f0a;
-    --glass: rgba(44, 44, 46, 0.62);
-    --glass-edge: rgba(255, 255, 255, 0.14);
-    --glass-shadow: 0 10px 36px rgba(0, 0, 0, 0.5);
+    --glass: rgba(36, 36, 38, 0.66);
+    --glass-edge: rgba(255, 255, 255, 0.12);
   }
 }
 
@@ -61,9 +62,8 @@ input:focus-visible {
 .glass {
   background: var(--glass);
   border: 1px solid var(--glass-edge);
-  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-edge);
-  backdrop-filter: blur(28px) saturate(190%);
-  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
 }
 
 /* ---------------------------------------------------------------- chrome */
@@ -358,6 +358,35 @@ h2 {
   opacity: 0.4;
   cursor: default;
 }
+/* secondary action: a capsule in the quiet fill (on glass when it floats over the chart) */
+.small {
+  white-space: nowrap;
+  min-height: 38px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fill);
+  font-size: 15px;
+  cursor: pointer;
+}
+.small:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+/* in a card it is the plain fill; only over the chart, in a toolbar, is it glass */
+.small.glass {
+  border: 0;
+  background: var(--fill);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.toolbar .small.glass,
+.flowbar .small.glass {
+  border: 1px solid var(--glass-edge);
+  background: var(--glass);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+}
 .primary {
   min-height: 52px;
   padding: 0 24px;
@@ -370,6 +399,7 @@ h2 {
   cursor: pointer;
 }
 .primary.small {
+  white-space: nowrap;
   min-height: 38px;
   padding: 0 18px;
   font-size: 15px;
@@ -396,13 +426,15 @@ h2 {
   cursor: pointer;
 }
 .segmented button[aria-selected='true'] {
-  background: var(--card);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.14);
+  background: var(--selected);
   font-weight: 600;
 }
 .segmented.small {
   flex: none;
   width: 190px;
+  min-height: 0;
+  padding: 3px;
+  font-size: inherit;
 }
 
 /* ---------------------------------------------------------------- library */
@@ -443,8 +475,8 @@ h2 {
   padding: 8px 16px;
   overflow-x: auto;
   background: var(--glass);
-  backdrop-filter: blur(28px) saturate(190%);
-  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
   scrollbar-width: none;
 }
 .codeindex .chip {
@@ -544,8 +576,8 @@ h2 {
   padding: 3px 10px;
   border-radius: 999px;
   background: var(--glass);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
   font-size: 12px;
   font-weight: 600;
 }
@@ -761,9 +793,8 @@ img.boardview {
   padding: 12px 14px;
   background: var(--glass);
   border: 1px solid var(--glass-edge);
-  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-edge);
-  backdrop-filter: blur(28px) saturate(190%);
-  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
 }
 .legendpanel > .row {
   justify-content: space-between;
@@ -930,9 +961,8 @@ img.boardview {
   border: 1px solid var(--glass-edge);
   border-radius: 999px;
   background: var(--glass);
-  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-edge);
-  backdrop-filter: blur(28px) saturate(190%);
-  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
   transform: translateX(-50%);
   white-space: nowrap;
 }
@@ -959,9 +989,8 @@ img.boardview {
   border: 1px solid var(--glass-edge);
   border-radius: 36px;
   background: color-mix(in srgb, var(--card) 86%, transparent);
-  box-shadow: var(--glass-shadow);
-  backdrop-filter: blur(30px) saturate(190%);
-  -webkit-backdrop-filter: blur(30px) saturate(190%);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
 }
 .sheetbody.wide {
   width: min(900px, 100%);
@@ -1119,6 +1148,7 @@ img.boardview {
 }
 .beadtools .zoombar input {
   flex: 1;
+  min-width: 0;
   accent-color: var(--accent);
 }
 .beadtools .zoombar .link {
@@ -1150,8 +1180,8 @@ img.boardview {
   padding: 10px 16px calc(12px + env(safe-area-inset-bottom));
   background: var(--glass);
   border-top: 1px solid var(--glass-edge);
-  backdrop-filter: blur(28px) saturate(190%);
-  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
 }
 .focusbar {
   display: flex;
@@ -1227,8 +1257,8 @@ img.boardview {
   z-index: 12;
   background: var(--glass);
   border-bottom: 1px solid var(--glass-edge);
-  backdrop-filter: blur(28px) saturate(190%);
-  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
 }
 .beadtop .flowbar {
   position: static;

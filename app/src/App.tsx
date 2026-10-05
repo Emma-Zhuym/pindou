@@ -291,11 +291,11 @@ function ChartDetail(props: { chart: Chart; onBack: () => void; onEdit: () => vo
           <Icon d={ICONS.back} size={20} />
         </button>
         <div className="row">
-          <button className="small glass" onClick={onEdit}>
-            修改识别结果
+          <button className="small glass" onClick={onEdit} aria-label="修改识别结果">
+            改识别
           </button>
-          <button className="small glass" onClick={onDraw}>
-            编辑图纸
+          <button className="small glass" onClick={onDraw} aria-label="编辑图纸">
+            编辑
           </button>
           <button className="primary small" onClick={onBead}>
             {chart.progress ? '继续拼豆' : '开始拼豆'}
