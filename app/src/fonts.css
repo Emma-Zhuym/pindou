@@ -1,0 +1,62 @@
+/* The chosen type (skin.ts sets data-font on <html>); any font goes with any look.
+   system: the default face (nothing here)
+   typewriter: Courier Prime for Latin and digits, LXGW WenKai Mono for Chinese, everywhere
+   pixel: Fusion Pixel 12px (OFL 1.1, src/fonts/OFL.txt) for what is read at a glance, at whole
+     multiples of its 12px grid where it can be, and never bold (made-up bold smears its squares) */
+
+@font-face {
+  font-family: 'Fusion Pixel';
+  src: url('./fonts/fusion-pixel-12px-zh_hans.woff2') format('woff2');
+  font-display: swap;
+}
+
+/* ---------------------------------------------------------------- typewriter */
+
+[data-font='typewriter'] body {
+  font-family: 'Courier Prime', 'LXGW WenKai Mono', 'PingFang SC', monospace;
+  /* Chinese has no bold here: keep it upright rather than smudged */
+  font-synthesis: none;
+}
+[data-font='typewriter'] .title h1,
+[data-font='typewriter'] h2 {
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+/* ---------------------------------------------------------------- pixel */
+
+[data-font='pixel'] h1,
+[data-font='pixel'] h2,
+[data-font='pixel'] .sectiontitle,
+[data-font='pixel'] button,
+[data-font='pixel'] .chip,
+[data-font='pixel'] .status,
+[data-font='pixel'] .meta b,
+[data-font='pixel'] .beadtitle b {
+  font-family: 'Fusion Pixel', 'PingFang SC', sans-serif;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+[data-font='pixel'] .title h1 {
+  font-size: 36px;
+}
+[data-font='pixel'] h2 {
+  font-size: 24px;
+}
+[data-font='pixel'] .sectiontitle {
+  font-size: 12px;
+}
+[data-font='pixel'] .small,
+[data-font='pixel'] .primary.small,
+[data-font='pixel'] .chip,
+[data-font='pixel'] .segmented button,
+[data-font='pixel'] .tabbar button,
+[data-font='pixel'] .status {
+  font-size: 12px;
+}
+[data-font='pixel'] .segmented button[aria-selected='true'],
+[data-font='pixel'] .tabbar button[aria-selected='true'],
+[data-font='pixel'] .chip.on,
+[data-font='pixel'] .primary {
+  font-weight: 400;
+}

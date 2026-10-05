@@ -4,7 +4,7 @@ import { type AiSettings, listVisionModels, loadAiSettings, type ModelInfo, save
 import { BeadMode } from './bead/BeadMode'
 import { Editor } from './edit/Editor'
 import { StatsPage } from './stats/StatsPage'
-import { type Skin, SKINS, loadSkin, saveSkin } from './skin'
+import { FONTS, type Font, fontFor, loadFont, loadSkin, saveFont, saveSkin, type Skin, SKINS } from './skin'
 import { statusPatch } from './status'
 import { StockPage } from './stock/StockPage'
 import { Usage } from './stock/Usage'
@@ -389,6 +389,7 @@ function ChartDetail(props: { chart: Chart; onBack: () => void; onEdit: () => vo
 function SettingsPage({ onRestored, count }: { onRestored: () => Promise<void>; count: number }) {
   const [ai, setAi] = useState<AiSettings>(loadAiSettings)
   const [skin, setSkin] = useState<Skin>(loadSkin)
+  const [font, setFont] = useState<Font>(loadFont)
   const [saved, setSaved] = useState(false)
   const [note, setNote] = useState('')
   const [kept, setKept] = useState<boolean | null>(null)
@@ -422,6 +423,26 @@ function SettingsPage({ onRestored, count }: { onRestored: () => Promise<void>; 
             </button>
           ))}
         </div>
+        <div className="field">
+          <span>字体</span>
+          <div className="segmented full" role="radiogroup" aria-label="字体">
+            {FONTS.map(([k, label]) => (
+              <button
+                key={k}
+                role="radio"
+                aria-checked={font === k}
+                aria-selected={font === k}
+                onClick={() => {
+                  setFont(k)
+                  saveFont(k)
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {fontFor(skin, font) === 'typewriter' && <p className="hint">文楷打字机的字体从 jsDelivr 下载，只下页面上用到的字；没网时先用系统字体。</p>}
       </section>
 
       <h2 className="sectiontitle">AI 读图例</h2>

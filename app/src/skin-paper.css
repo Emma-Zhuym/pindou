@@ -1,185 +1,104 @@
-/* The hand-drawn look (skin.ts sets data-skin="paper" on <html>): cream paper with a faint grain,
-   ink lines drawn a little crooked, crayon colours, a pixel face (like beads) for headings and
-   buttons: Fusion Pixel 12px, simplified Chinese, OFL 1.1 (src/fonts/OFL.txt), drawn at whole
-   multiples of its 12px grid where it can be.
-   Only colours, lines and type change; every page keeps its layout. Always light: it is paper. */
-
-@font-face {
-  font-family: 'Fusion Pixel';
-  src: url('./fonts/fusion-pixel-12px-zh_hans.woff2') format('woff2');
-  font-display: swap;
-}
+/* The paper look (skin.ts sets data-skin="paper" on <html>): off-white paper with a faint grain
+   and a couple of old folds, controls in milky liquid glass (see-through, a bright edge, no drop
+   shadow), ink-brown text and a caramel accent. Only colours and surfaces change; every page keeps
+   its layout. Always light: it is paper. */
 
 :root[data-skin='paper'] {
-  --bg: #f6efe1;
-  --card: #fffaf0;
-  --text: #3b352c;
-  --sub: #85796a;
-  --ink: #3b352c;
-  --line: rgba(59, 53, 44, 0.22);
-  --fill: rgba(150, 120, 80, 0.1);
-  --selected: #ffe7a3; /* a yellow crayon highlight */
-  --accent: #d9534a; /* the red of the icon */
-  --red: #c0392b;
-  --orange: #c26a12;
-  --glass: rgba(250, 244, 231, 0.9);
-  --glass-edge: rgba(59, 53, 44, 0.35);
-  --glass-filter: blur(10px);
-  --r-card: 22px;
-  --r-control: 12px;
-  /* lines drawn by hand: no two corners alike */
-  --hand-pill: 255px 18px 225px 18px / 18px 225px 18px 255px;
-  --hand-pill-b: 18px 225px 18px 255px / 255px 18px 225px 18px;
-  --hand-card: 24px 32px 20px 36px / 32px 20px 34px 24px;
-  --hand-font: 'Fusion Pixel', 'PingFang SC', 'Hiragino Sans GB', sans-serif;
+  --bg: #f3f0ea;
+  --card: rgba(255, 255, 255, 0.5);
+  --text: #3a2f27;
+  --sub: #8a7b6c;
+  --line: rgba(58, 47, 39, 0.12);
+  --fill: rgba(58, 47, 39, 0.06);
+  --selected: rgba(255, 255, 255, 0.92);
+  --accent: #a8743a; /* caramel, deep enough for text */
+  --caramel: #c08f55; /* the main button */
+  --red: #b5452f;
+  --orange: #b9762a;
+  --glass: rgba(255, 255, 255, 0.52);
+  --glass-edge: rgba(255, 255, 255, 0.95);
+  --glass-filter: blur(20px) saturate(150%);
+  /* a bright inner rim and the faintest outline, so milk-white glass reads on off-white paper */
+  --glass-rim: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 0 0 0.5px rgba(58, 47, 39, 0.08);
+  --r-card: 24px;
   color-scheme: light;
 }
 
-/* paper grain: a fixed noise tile, very faint */
+/* paper: a faint grain tiled over two old folds */
 [data-skin='paper'] body {
   background-color: var(--bg);
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.42 0 0 0 0 0.34 0 0 0 0 0.22 0 0 0 0.09 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  background-image:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.35 0 0 0 0 0.3 0 0 0 0 0.25 0 0 0 0.07 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>"),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 900' preserveAspectRatio='none'><filter id='s'><feGaussianBlur stdDeviation='2.5'/></filter><g filter='url(%23s)'><path d='M0 330 L400 300' stroke='white' stroke-width='7' opacity='0.4'/><path d='M0 334 L400 304' stroke='%233a2f27' stroke-width='2' opacity='0.035'/><path d='M0 640 L400 660' stroke='white' stroke-width='7' opacity='0.35'/><path d='M0 644 L400 664' stroke='%233a2f27' stroke-width='2' opacity='0.03'/></g></svg>");
+  background-size: 180px 180px, 100% 100%;
+  background-attachment: scroll, fixed;
 }
 
-/* handwriting for what is read at a glance; body text and numbers stay plain */
-[data-skin='paper'] h1,
-[data-skin='paper'] h2,
-[data-skin='paper'] .sectiontitle,
-[data-skin='paper'] button,
-[data-skin='paper'] .chip,
-[data-skin='paper'] .status,
-[data-skin='paper'] .meta b,
-[data-skin='paper'] .beadtitle b {
-  font-family: var(--hand-font);
-  font-weight: 400;
-  letter-spacing: 0;
-}
-[data-skin='paper'] .title h1 {
-  font-size: 36px;
-}
-[data-skin='paper'] h2 {
-  font-size: 24px;
-}
-[data-skin='paper'] .sectiontitle {
-  color: var(--ink);
-  font-size: 12px;
-}
-[data-skin='paper'] .small,
-[data-skin='paper'] .primary.small,
-[data-skin='paper'] .chip,
-[data-skin='paper'] .segmented button,
-[data-skin='paper'] .tabbar button,
-[data-skin='paper'] .status {
-  font-size: 12px;
-}
-
-/* cards: a sheet of paper outlined in ink */
+/* cards: a pane of milky glass on the paper */
 [data-skin='paper'] .card,
 [data-skin='paper'] .chartcard,
 [data-skin='paper'] .drop {
-  border: 1.5px solid var(--ink);
-  border-radius: var(--hand-card);
+  border: 1px solid var(--glass-edge);
   background: var(--card);
-}
-[data-skin='paper'] .chartcard:nth-child(odd) {
-  transform: rotate(-0.6deg);
-}
-[data-skin='paper'] .chartcard:nth-child(even) {
-  transform: rotate(0.5deg);
+  box-shadow: var(--glass-rim);
 }
 [data-skin='paper'] .thumb {
-  border: 1.5px solid var(--line);
-  border-radius: var(--hand-pill-b);
+  background: rgba(255, 255, 255, 0.7);
 }
 
-/* bars and sheets: paper, an ink edge, no shadow */
+/* bars, sheets and floating controls: the same glass */
 [data-skin='paper'] .glass,
 [data-skin='paper'] .legendpanel,
 [data-skin='paper'] .actionbar,
 [data-skin='paper'] .codeindex,
 [data-skin='paper'] .beadpalette,
-[data-skin='paper'] .beadtop {
-  background: var(--glass);
+[data-skin='paper'] .beadtop,
+[data-skin='paper'] .status {
   border-color: var(--glass-edge);
-}
-[data-skin='paper'] .tabbar,
-[data-skin='paper'] .fab,
-[data-skin='paper'] .circle,
-[data-skin='paper'] .flowbar .steps,
-[data-skin='paper'] .actionbar {
-  border: 1.5px solid var(--ink);
-}
-[data-skin='paper'] .tabbar,
-[data-skin='paper'] .flowbar .steps,
-[data-skin='paper'] .actionbar {
-  border-radius: var(--hand-pill);
-}
-[data-skin='paper'] .fab,
-[data-skin='paper'] .circle {
-  border-radius: 48% 52% 50% 50% / 52% 48% 52% 48%;
+  background: var(--glass);
+  box-shadow: var(--glass-rim);
 }
 [data-skin='paper'] .sheetbody {
-  border: 1.5px solid var(--ink);
-  border-radius: var(--hand-card);
-  background: var(--card);
+  border: 1px solid var(--glass-edge);
+  background: rgba(250, 248, 243, 0.9);
+  box-shadow: var(--glass-rim);
 }
 [data-skin='paper'] .sheet {
-  background: rgba(59, 53, 44, 0.25);
+  background: rgba(58, 47, 39, 0.22);
 }
 
-/* buttons: the main one crayoned in red, the others outlined */
+/* buttons: caramel for the main one, glass for the rest */
 [data-skin='paper'] .primary {
-  border: 1.5px solid var(--ink);
-  border-radius: var(--hand-pill);
-  background: var(--accent);
-  color: #fffaf0;
+  background: var(--caramel);
+  color: #fffaf2;
 }
 [data-skin='paper'] .small,
 [data-skin='paper'] .small.glass,
 [data-skin='paper'] .toolbar .small.glass,
-[data-skin='paper'] .flowbar .small.glass {
-  border: 1.5px solid var(--ink);
-  border-radius: var(--hand-pill-b);
-  background: var(--card);
+[data-skin='paper'] .flowbar .small.glass,
+[data-skin='paper'] .chip {
+  border: 1px solid var(--glass-edge);
+  background: var(--glass);
+  box-shadow: var(--glass-rim);
 }
 [data-skin='paper'] .primary.small {
-  background: var(--accent);
-}
-[data-skin='paper'] .chip {
-  border: 1.5px solid var(--line);
-  border-radius: var(--hand-pill);
-  background: var(--card);
+  border: 0;
+  background: var(--caramel);
+  box-shadow: none;
 }
 [data-skin='paper'] .chip.on {
-  border-color: var(--ink);
-  background: var(--selected);
-  color: var(--ink);
-}
-[data-skin='paper'] .link {
-  color: var(--accent);
-  text-decoration: underline wavy color-mix(in srgb, var(--accent) 45%, transparent);
-  text-underline-offset: 4px;
-}
-
-/* the segmented control: chosen part highlighted in yellow crayon */
-[data-skin='paper'] .segmented {
-  border: 1.5px solid var(--ink);
-  border-radius: var(--hand-pill);
-  background: var(--card);
-}
-[data-skin='paper'] .segmented button {
-  border-radius: var(--hand-pill-b);
+  background: rgba(192, 143, 85, 0.18);
+  color: #7d531f;
 }
 [data-skin='paper'] .segmented button[aria-selected='true'] {
-  background: var(--selected);
-  color: var(--ink);
+  box-shadow: var(--glass-rim);
 }
 [data-skin='paper'] .tabbar button[aria-selected='true'] {
-  background: var(--selected);
-  color: var(--ink);
+  background: var(--fill);
+  color: var(--accent);
 }
 
-/* fields: a hand-ruled box */
+/* fields: a shallow well of glass */
 [data-skin='paper'] .field input,
 [data-skin='paper'] .search,
 [data-skin='paper'] .titleinput,
@@ -188,32 +107,9 @@
 [data-skin='paper'] .countinput,
 [data-skin='paper'] .bagselect,
 [data-skin='paper'] textarea {
-  border: 1.5px solid var(--line);
-  border-radius: var(--hand-pill-b);
-  background: var(--card);
-}
-
-[data-skin='paper'] .status {
-  border: 1px solid var(--ink);
-  background: var(--card);
-}
-[data-skin='paper'] .swatch {
-  border-color: rgba(59, 53, 44, 0.45);
+  border: 1px solid var(--glass-edge);
+  background: rgba(255, 255, 255, 0.55);
 }
 [data-skin='paper'] .userow.head {
-  background: var(--card);
-}
-/* links that are symbols (zoom − and +) need no underline */
-[data-skin='paper'] .zoombar .link {
-  text-decoration: none;
-}
-/* a pixel face has no bold: made-up bold smears its squares */
-[data-skin='paper'] .segmented button[aria-selected='true'],
-[data-skin='paper'] .tabbar button[aria-selected='true'],
-[data-skin='paper'] .chip.on,
-[data-skin='paper'] .status,
-[data-skin='paper'] .meta b,
-[data-skin='paper'] .beadtitle b,
-[data-skin='paper'] .primary {
-  font-weight: 400;
+  background: rgba(250, 248, 243, 0.95);
 }

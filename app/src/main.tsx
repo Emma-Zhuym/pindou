@@ -1,10 +1,11 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App.tsx'
-import { applySkin, loadSkin } from './skin'
+import { applyLook } from './skin'
 import './skin-paper.css'
+import './fonts.css'
 
-applySkin(loadSkin())
+applyLook()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

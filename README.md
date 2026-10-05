@@ -26,8 +26,9 @@
 - 52 / 78 / 104 三种豆板。5 格虚线、10 格实线的辅助线固定在豆板上，图案可以在板上挪动。
 - 显示每格色号、高亮单个颜色、标记颜色完成、镜像（熨烫用）、计时、一键标记整张拼完。
 
-**两套外观**
-- 仿 iOS 的半透明风格，和手绘纸张风格，在设置里切换。
+**外观和字体**
+- 两套外观：仿 iOS 的半透明风格，和纸张风格（米白纸面、乳白液态玻璃、焦糖色）。
+- 四种字体：跟随外观、系统字体、文楷打字机（Courier Prime + 霞鹜文楷 Mono）、像素（缝合像素字体）。
 
 **库存与统计**
 - 按色号记录库存。补货可以按克（1 克约 100 颗）、按整套补，或导入 CSV。按色系筛选、排序。
@@ -41,6 +42,7 @@
 - 可以在设置里导出备份文件，换设备或换浏览器时再恢复。
 - 只有开启 AI 辅助时，才会把图例和格子的裁剪小图发给 OpenRouter，用的是你自己的 Key。
 - 读取小红书笔记时不登录、不用 Cookie，一次只读一条你主动分享的笔记。
+- 用「文楷打字机」字体时，会从 jsDelivr 下载字体文件（只下载页面上用到的字）。
 
 ## 本地开发
 
@@ -77,7 +79,7 @@ pnpm lint
 
 - 本项目以 [AGPL-3.0](LICENSE) 发布。
 - MARD 色卡数据来自 [Zippland/perler-beads](https://github.com/Zippland/perler-beads)（AGPL-3.0）。
-- 手绘纸张外观的像素字体是 [缝合像素字体 Fusion Pixel Font](https://github.com/TakWolf/fusion-pixel-font)（SIL OFL 1.1，协议见 `app/src/fonts/`）。
+- 字体：[缝合像素字体 Fusion Pixel Font](https://github.com/TakWolf/fusion-pixel-font)（SIL OFL 1.1，随应用打包，协议见 `app/src/fonts/`）；[霞鹜文楷 Mono](https://github.com/lxgw/LxgwWenKai) 和 [Courier Prime](https://quoteunquote.com/courier-prime/)（均为 SIL OFL 1.1，从 jsDelivr 加载）。
 - 图标是用代码一笔一笔画的蜡笔画（`app/tools/crayon-icon.ts`）。
 - 屏幕上的颜色只是近似，以实物豆子为准。
 - 本项目是个人项目，与 MARD、小红书没有关系。
