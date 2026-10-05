@@ -1,7 +1,7 @@
 // The app's look and its type, both kept on this device.
 //   look: iOS (glass over a quiet background), paper (milky glass on off-white paper) or sketch
 //     (drawn on fibrous paper: pencil frames, crayon highlights; glass only for floating bars)
-//   font: follows the look by default; or the system face, a typewriter pairing (Courier Prime with
+//   font: follows the look by default (iOS: system, paper: typewriter, sketch: pixel); or the system face, a typewriter pairing (Courier Prime with
 //     LXGW WenKai Mono, from jsDelivr, split so only the characters on screen download), or the
 //     pixel face bundled in src/fonts.
 
@@ -51,7 +51,7 @@ export const loadFont = (): Font => {
 }
 
 /** The font actually used: "follow the look" picks the look's own. */
-export const fontFor = (skin: Skin, font: Font): Exclude<Font, 'auto'> => (font !== 'auto' ? font : skin === 'ios' ? 'system' : 'typewriter')
+export const fontFor = (skin: Skin, font: Font): Exclude<Font, 'auto'> => (font !== 'auto' ? font : skin === 'ios' ? 'system' : skin === 'sketch' ? 'pixel' : 'typewriter')
 
 export function applyLook(skin = loadSkin(), font = loadFont()) {
   const used = fontFor(skin, font)

@@ -113,3 +113,15 @@
 [data-skin='paper'] .userow.head {
   background: rgba(250, 248, 243, 0.95);
 }
+[data-skin='paper'] .iconbtn {
+  border: 1px solid var(--glass-edge);
+  background: var(--glass);
+  box-shadow: var(--glass-rim);
+}
+[data-skin='paper'] .iconbtn.on {
+  background: rgba(192, 143, 85, 0.18);
+  color: #7d531f;
+}
+[data-skin='paper'] .beadmenu.glass {
+  background: rgba(250, 248, 243, 0.94);
+}

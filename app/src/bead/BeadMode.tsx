@@ -25,6 +25,8 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
   // where the chart sits on the pegboard (pegs from its top left); null: centred
   const [offset, setOffset] = useState<{ x: number; y: number } | null>(chart.progress?.offset ?? null)
   const [moving, setMoving] = useState(false)
+  // the settings that fold away under the chart's name
+  const [menu, setMenu] = useState(false)
   const drag = useRef<{ x: number; y: number; from: { x: number; y: number } } | null>(null)
   const [done, setDone] = useState<string[]>(chart.progress?.done ?? [])
   const [focus, setFocus] = useState<string | null>(null)
@@ -127,85 +129,118 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
   return (
     <div className="bead">
       <div className="beadtop">
-      <header className="flowbar">
-        <button className="circle glass" aria-label="退出拼豆模式" onClick={close}>
-          <Icon d={ICONS.close} size={20} />
-        </button>
-        <div className="beadtitle">
-          <b>{chart.title}</b>
-          <span className="sub">
-            {cols}×{rows}
-            {board ? ` · ${board} 板` : ''} · 已完成 {done.length}/{counts.length} 色，{placed}/{total} 颗
-          </span>
-        </div>
-        <button className={running ? 'primary small' : 'small glass'} onClick={startStop}>
-          {running ? '暂停' : '计时'} {clock(seconds)}
-        </button>
-      </header>
+        <header className="beadhead">
+          <button className="circle glass" aria-label="退出拼豆模式" onClick={close}>
+            <Icon d={ICONS.close} size={20} />
+          </button>
+          <button className="beadname" aria-expanded={menu} aria-label="拼豆设置" onClick={() => setMenu(!menu)}>
+            <span className="name">
+              <b>{chart.title}</b>
+              <span className={menu ? 'chev up' : 'chev'}>
+                <Icon d={ICONS.chevron} size={16} />
+              </span>
+            </span>
+            <span className="sub">
+              {done.length}/{counts.length} 色 · {placed}/{total} 颗{board ? ` · ${board} 板` : ''}
+            </span>
+          </button>
+          <button className={running ? 'timer primary small' : 'timer small glass'} aria-label={running ? '暂停计时' : '开始计时'} onClick={startStop}>
+            <Icon d={running ? ICONS.pause : ICONS.timer} size={18} />
+            {clock(seconds)}
+          </button>
+        </header>
 
-      <div className="beadtools">
-        <div className="segmented small" role="radiogroup" aria-label="豆板">
-          {BOARDS.map((n) => (
-            <button
-              key={n}
-              role="radio"
-              aria-checked={board === n}
-              aria-selected={board === n}
-              disabled={n < Math.max(cols, rows)}
-              onClick={() => {
-                setBoard(n)
-                setOffset(null)
-              }}
-            >
-              {n}
-            </button>
-          ))}
-        </div>
-        <button className={mirror ? 'chip on' : 'chip'} onClick={() => setMirror(!mirror)}>
-          镜像
-        </button>
-        {board && (
+        {menu && (
           <>
-            <button className={moving ? 'chip on' : 'chip'} onClick={() => setMoving(!moving)}>
-              {moving ? '挪好了' : '挪位置'}
-            </button>
-            {offset && (
-              <button className="chip" onClick={() => setOffset(null)}>
-                居中
-              </button>
-            )}
+            <div className="beadmenu-scrim" onClick={() => setMenu(false)} />
+            <div className="beadmenu glass" role="dialog" aria-label="拼豆设置">
+              <div className="segmented full" role="radiogroup" aria-label="豆板">
+                {BOARDS.map((n) => (
+                  <button
+                    key={n}
+                    role="radio"
+                    aria-checked={board === n}
+                    aria-selected={board === n}
+                    disabled={n < Math.max(cols, rows)}
+                    onClick={() => {
+                      setBoard(n)
+                      setOffset(null)
+                    }}
+                  >
+                    {n} 板
+                  </button>
+                ))}
+              </div>
+              <div className="iconbtns">
+                <button
+                  className={labels ? 'iconbtn on' : 'iconbtn'}
+                  aria-pressed={labels}
+                  onClick={() => {
+                    // codes need room: zoom in far enough to read them
+                    if (!labels && cell < LABEL_CELL) setCell(Math.min(maxCell, LABEL_CELL))
+                    setLabels(!labels)
+                  }}
+                >
+                  <Icon d={ICONS.labels} size={22} />
+                  色号
+                </button>
+                <button className={mirror ? 'iconbtn on' : 'iconbtn'} aria-pressed={mirror} onClick={() => setMirror(!mirror)}>
+                  <Icon d={ICONS.mirror} size={22} />
+                  镜像
+                </button>
+                <button
+                  className={moving ? 'iconbtn on' : 'iconbtn'}
+                  aria-pressed={moving}
+                  disabled={!board}
+                  onClick={() => {
+                    setMoving(!moving)
+                    setMenu(false)
+                  }}
+                >
+                  <Icon d={ICONS.move} size={22} />
+                  挪位置
+                </button>
+                <button className="iconbtn" disabled={!board || !offset} onClick={() => setOffset(null)}>
+                  <Icon d={ICONS.centre} size={22} />
+                  居中
+                </button>
+              </div>
+              <div className="zoombar">
+                <button className="link" aria-label="缩小" onClick={() => setCell(Math.max(MIN_CELL, cell - 2))}>
+                  −
+                </button>
+                <input type="range" min={MIN_CELL} max={maxCell} value={cell} onChange={(e) => setCell(Number(e.target.value))} aria-label="缩放" />
+                <button className="link" aria-label="放大" onClick={() => setCell(Math.min(maxCell, cell + 2))}>
+                  +
+                </button>
+              </div>
+              <p className="hint">两根手指在图上捏合也能缩放。</p>
+              {chart.status !== 'done' && (
+                <button
+                  className="primary small"
+                  onClick={() => {
+                    setMenu(false)
+                    finish()
+                  }}
+                >
+                  <Icon d={ICONS.check} size={18} />
+                  整张拼完
+                </button>
+              )}
+            </div>
           </>
         )}
-        <button
-          className={labels ? 'chip on' : 'chip'}
-          onClick={() => {
-            // codes need room: zoom in far enough to read them
-            if (!labels && cell < LABEL_CELL) setCell(Math.min(maxCell, LABEL_CELL))
-            setLabels(!labels)
-          }}
-        >
-          色号
-        </button>
-        {chart.status !== 'done' && (
-          <button className="primary small" onClick={finish}>
-            整张拼完
-          </button>
-        )}
-        <div className="zoombar">
-          <button className="link" aria-label="缩小" onClick={() => setCell(Math.max(MIN_CELL, cell - 2))}>
-            −
-          </button>
-          <input type="range" min={MIN_CELL} max={maxCell} value={cell} onChange={(e) => setCell(Number(e.target.value))} aria-label="缩放" />
-          <button className="link" aria-label="放大" onClick={() => setCell(Math.min(maxCell, cell + 2))}>
-            +
-          </button>
-        </div>
-      </div>
-
       </div>
 
       <div className="beadstage" ref={stageRef}>
-        {moving && <p className="hint">在图上拖动，把图案挪到豆板上想放的位置；红线是豆板上印的线，不会跟着动。</p>}
+        {moving && (
+          <div className="movehint">
+            <p className="hint">在图上拖动，把图案挪到豆板上想放的位置；红线是豆板上印的线，不会跟着动。</p>
+            <button className="primary small" onClick={() => setMoving(false)}>
+              挪好了
+            </button>
+          </div>
+        )}
         <canvas ref={ref} style={{ touchAction: moving ? 'none' : 'auto' }} onPointerDown={grab} onPointerMove={slide} onPointerUp={() => (drag.current = null)} onPointerCancel={() => (drag.current = null)} />
       </div>
 

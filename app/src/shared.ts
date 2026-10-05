@@ -42,6 +42,14 @@ export const ICONS = {
   plus: 'M12 5v14M5 12h14',
   close: 'M6 6l12 12M18 6 6 18',
   back: 'M15 5l-7 7 7 7',
+  chevron: 'M7 10l5 5 5-5',
+  timer: 'M9.5 2.5h5M12 6.5a7.5 7.5 0 1 0 0 15a7.5 7.5 0 1 0 0-15zM12 10v4l2.5 1.5',
+  pause: 'M9 6.5v11M15 6.5v11',
+  labels: 'M5 7V5h14v2M12 5v14M9 19h6',
+  mirror: 'M12 3v18M9 7l-5 10h5V7zM15 7l5 10h-5V7z',
+  move: 'M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3',
+  centre: 'M12 4a8 8 0 1 0 0 16a8 8 0 1 0 0-16zM12 9.5a2.5 2.5 0 1 0 0 5a2.5 2.5 0 1 0 0-5z',
+  check: 'M5 12.5l4.5 4.5L19 7.5',
 }
 
 // Some browser features exist only on https or localhost ("secure contexts"). Opened from another

@@ -79,18 +79,70 @@ function paper() {
 
 // ------------------------------------------------------------------ pencil frame
 
-/** A rounded rectangle gone over twice in pencil, as SVG: stretched by border-image's nine slices. */
+/**
+ * A rounded rectangle drawn in pencil, as a PNG for border-image's nine slices: each pass is
+ * graphite grain laid along the outline, heavier and lighter as the hand presses, and the two
+ * passes start in different places and overrun their ends, so joins and corners never quite meet.
+ * `S` is the drawn size in CSS pixels (the PNG is twice that), `R` the corner radius.
+ */
 function frame(file: string, S: number, R: number, width: number) {
-  const path = (j: number) => {
-    const p = (x: number, y: number) => `${(x + jit(j)).toFixed(1)} ${(y + jit(j)).toFixed(1)}`
-    const m = Math.max(2, S / 30)
-    return (
-      `M${p(m + R, m)} L${p(S / 2, m)} L${p(S - m - R, m)} Q${p(S - m, m)} ${p(S - m, m + R)} L${p(S - m, S / 2)} L${p(S - m, S - m - R)} ` +
-      `Q${p(S - m, S - m)} ${p(S - m - R, S - m)} L${p(S / 2, S - m)} L${p(m + R, S - m)} Q${p(m, S - m)} ${p(m, S - m - R)} L${p(m, S / 2)} L${p(m, m + R)} Q${p(m, m)} ${p(m + R + jit(2), m + jit(1))}`
-    )
+  const K = 2
+  const c = createCanvas(S * K, S * K)
+  const ctx = c.getContext('2d')
+  const m = width * 1.6 + 1
+  // the outline as points, a little wobbly
+  const outline = (j: number) => {
+    j *= 1.6
+    const pts: [number, number][] = []
+    const side = (x0: number, y0: number, x1: number, y1: number) => {
+      const n = Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 6)
+      for (let k = 0; k < n; k++) pts.push([x0 + ((x1 - x0) * k) / n + jit(j), y0 + ((y1 - y0) * k) / n + jit(j)])
+    }
+    const arc = (cx: number, cy: number, a0: number) => {
+      for (let k = 0; k < 8; k++) {
+        const a = a0 + (k / 8) * (Math.PI / 2)
+        pts.push([cx + Math.cos(a) * R + jit(j * 0.6), cy + Math.sin(a) * R + jit(j * 0.6)])
+      }
+    }
+    side(m + R, m, S - m - R, m)
+    arc(S - m - R, m + R, -Math.PI / 2)
+    side(S - m, m + R, S - m, S - m - R)
+    arc(S - m - R, S - m - R, 0)
+    side(S - m - R, S - m, m + R, S - m)
+    arc(m + R, S - m - R, Math.PI / 2)
+    side(m, S - m - R, m, m + R)
+    arc(m + R, m + R, Math.PI)
+    return pts
   }
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${S}" height="${S}" viewBox="0 0 ${S} ${S}"><g fill="none" stroke="#3a2f27" stroke-linecap="round" stroke-linejoin="round"><path d="${path(S / 150)}" stroke-width="${width}" opacity="0.55"/><path d="${path(S / 100)}" stroke-width="${width * 0.6}" opacity="0.3"/></g></svg>\n`
-  writeFileSync(file, svg)
+  const pass = (pts: [number, number][], start: number, overrun: number, weight: number, alpha: number) => {
+    const n = pts.length
+    const steps = n + overrun
+    let phase = rnd() * 10
+    for (let k = 0; k < steps; k++) {
+      const [x0, y0] = pts[(start + k) % n]
+      const [x1, y1] = pts[(start + k + 1) % n]
+      const len = Math.hypot(x1 - x0, y1 - y0)
+      // lighter where the stroke starts and lifts off
+      const ends = Math.min(1, k / 4, (steps - k) / 4)
+      for (let t = 0; t < len; t += 0.35) {
+        phase += 0.035
+        const press = (0.65 + 0.35 * Math.sin(phase) + jit(0.12)) * ends
+        const x = x0 + ((x1 - x0) * t) / len
+        const y = y0 + ((y1 - y0) * t) / len
+        const r = width * 0.5 * (0.55 + 0.45 * press)
+        // graphite: a few grains across the line, not a solid fill
+        for (let g = 0; g < 4; g++) {
+          ctx.fillStyle = `rgba(58,47,39,${Math.max(0, alpha * press * (0.35 + rnd() * 0.65))})`
+          ctx.fillRect((x + jit(r)) * K, (y + jit(r)) * K, K * (0.5 + rnd() * 0.7), K * (0.5 + rnd() * 0.7))
+        }
+      }
+    }
+  }
+  const a = outline(S / 160)
+  pass(a, Math.floor(rnd() * a.length), 3, width, 0.75)
+  const b = outline(S / 110)
+  pass(b, Math.floor(rnd() * b.length), 2, width * 0.75, 0.4)
+  writeFileSync(file, c.toBuffer('image/png'))
 }
 
 // ------------------------------------------------------------------ crayon strokes
@@ -131,7 +183,7 @@ function crayon(file: string, w: number, h: number, rgb: [number, number, number
 }
 
 paper()
-frame('src/paper/pencil.svg', 120, 22, 1.5) // cards, sliced at 30 into 12px edges
-frame('src/paper/pencil-small.svg', 40, 9, 1.8) // buttons and chips, sliced at 12 into 8px edges
+frame('src/paper/pencil.png', 120, 20, 2.4) // cards: sliced at 2 × 24 into 10px edges
+frame('src/paper/pencil-small.png', 48, 10, 2.1) // buttons and chips: sliced at 2 × 14 into 6px edges
 crayon('src/paper/highlight.png', 360, 72, [244, 200, 90], 0.2) // chosen: yellow crayon
 crayon('src/paper/caramel.png', 360, 96, [192, 132, 66], 0.3) // main button: caramel crayon

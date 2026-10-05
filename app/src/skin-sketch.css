@@ -1,7 +1,7 @@
 /* The hand-drawn look (data-skin="sketch"): everything drawn on fibrous paper. Cards are not
    panes but pencil frames straight on the page; what is chosen is coloured in with yellow crayon,
    the main button with caramel crayon. Only what floats over the page (bars, the round buttons,
-   sheets) is milky liquid glass. Textures come from tools/paper-assets.ts. Always light. */
+   sheets) is milky liquid glass. Textures come from tools/paper-assets.ts; the default font is the pixel one. Always light. */
 
 :root[data-skin='sketch'] {
   --bg: #f2efe8;
@@ -36,7 +36,7 @@
 [data-skin='sketch'] .toolbar .small.glass,
 [data-skin='sketch'] .chip {
   border-style: solid;
-  border-image: url('./paper/pencil.svg') 30 / 12px / 0 stretch;
+  border-image: url('./paper/pencil.png') 48 / 10px / 0 stretch;
   background: transparent;
   box-shadow: none;
   backdrop-filter: none;
@@ -45,10 +45,10 @@
 [data-skin='sketch'] .card,
 [data-skin='sketch'] .chartcard,
 [data-skin='sketch'] .drop {
-  border-width: 12px;
+  border-width: 10px;
 }
 [data-skin='sketch'] .card {
-  padding: 8px 6px;
+  padding: 8px;
 }
 [data-skin='sketch'] .chartcard {
   padding: 2px;
@@ -64,8 +64,21 @@
 [data-skin='sketch'] .small.glass,
 [data-skin='sketch'] .toolbar .small.glass,
 [data-skin='sketch'] .chip {
-  border-width: 8px;
-  border-image: url('./paper/pencil-small.svg') 12 / 8px / 0 stretch;
+  border-width: 6px;
+  border-image: url('./paper/pencil-small.png') 28 / 6px / 0 stretch;
+}
+/* the frame takes the place of the fill's padding, so they keep their usual height */
+[data-skin='sketch'] .segmented {
+  padding: 0;
+}
+[data-skin='sketch'] .segmented button {
+  min-height: 30px;
+}
+[data-skin='sketch'] .small {
+  min-height: 36px;
+}
+[data-skin='sketch'] .chip {
+  min-height: 32px;
 }
 [data-skin='sketch'] .small,
 [data-skin='sketch'] .chip {
@@ -139,4 +152,22 @@
 }
 [data-skin='sketch'] .userow.head {
   background: rgba(242, 239, 232, 0.96);
+}
+/* the settings under the chart's name: pencil-framed icon buttons, crayon when on */
+[data-skin='sketch'] .iconbtn {
+  border-style: solid;
+  border-width: 6px;
+  border-image: url('./paper/pencil-small.png') 28 / 6px / 0 stretch;
+  background: transparent;
+  padding: 6px 2px 4px;
+}
+[data-skin='sketch'] .iconbtn.on {
+  background: url('./paper/highlight.png') center / 100% 100% no-repeat;
+  color: var(--text);
+}
+[data-skin='sketch'] .beadmenu.glass {
+  border: 1px solid var(--glass-edge);
+  border-image-source: none;
+  background: rgba(246, 243, 236, 0.92);
+  box-shadow: var(--glass-rim);
 }
