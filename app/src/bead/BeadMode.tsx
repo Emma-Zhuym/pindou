@@ -74,11 +74,11 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
   }, [running]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    const o = { cells, cols, rows, cell, board, mirror, labels, focus, done, offset: offset ?? undefined, rulers: false }
+    const o = { cells, cols, rows, cell, board, mirror, labels, focus, done, offset: offset ?? undefined, moving, rulers: false }
     if (ref.current) paintChart(ref.current, o)
     const ink = getComputedStyle(document.documentElement).getPropertyValue('--sub').trim() || '#6e6e73'
     if (topRef.current && leftRef.current) paintRulers(topRef.current, leftRef.current, o, RULER, ink)
-  }, [cells, cols, rows, board, cell, mirror, labels, focus, done, offset])
+  }, [cells, cols, rows, board, cell, mirror, labels, focus, done, offset, moving])
   const stageRef = useRef<HTMLDivElement>(null)
   const pinching = usePinchZoom(stageRef, ref, cell, setCell, MIN_CELL, maxCell, true)
 

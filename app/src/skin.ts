@@ -1,8 +1,8 @@
 // The app's look and its type, both kept on this device.
 //   look: iOS (glass over a quiet background), paper (milky glass on off-white paper) or sketch
-//     (drawn on fibrous paper: pencil frames, crayon highlights; glass only for floating bars)
-//   font: follows the look by default (iOS: system, paper: typewriter, sketch: pixel); or the system face, a typewriter pairing (Courier Prime with
-//     LXGW WenKai Mono, from jsDelivr, split so only the characters on screen download), or the
+//     (drawn on fibrous paper: pencil frames, crayon highlights; glass only for small floating controls)
+//   font: follows the look by default (iOS: system, paper: typewriter, sketch: pixel); or the system face, a typewriter pairing (Courier Prime for
+//     Latin and digits, system Chinese), or the
 //     pixel face bundled in src/fonts.
 
 export type Skin = 'ios' | 'paper' | 'sketch'
@@ -15,15 +15,14 @@ export const SKINS: [Skin, string][] = [
 export const FONTS: [Font, string][] = [
   ['auto', '跟随外观'],
   ['system', '系统'],
-  ['typewriter', '文楷打字机'],
+  ['typewriter', '打字机'],
   ['pixel', '像素'],
 ]
 const SKIN_KEY = 'pindou.skin'
 const FONT_KEY = 'pindou.font'
-const TYPEWRITER = [
+const COURIER = [
   'https://cdn.jsdelivr.net/npm/@fontsource/courier-prime@5.3.0/400.css',
   'https://cdn.jsdelivr.net/npm/@fontsource/courier-prime@5.3.0/700.css',
-  'https://cdn.jsdelivr.net/npm/@chinese-fonts/lxgwwenkai@3.0.0/dist/LXGWWenKaiMono-Regular/result.css',
 ]
 
 const read = (key: string) => {
@@ -58,7 +57,7 @@ export function applyLook(skin = loadSkin(), font = loadFont()) {
   document.documentElement.dataset.skin = skin
   document.documentElement.dataset.font = used
   if (used === 'typewriter') {
-    for (const href of TYPEWRITER) {
+    for (const href of COURIER) {
       if (document.querySelector(`link[href="${href}"]`)) continue
       const link = document.createElement('link')
       link.rel = 'stylesheet'

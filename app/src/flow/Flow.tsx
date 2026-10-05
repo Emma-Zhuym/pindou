@@ -47,7 +47,7 @@ function formatAiCalls(calls: AiRequestEvent[]): string {
 /**
  * Recognising a new chart, or reopening a saved one to correct it. Full screen, over the tabs.
  */
-export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () => void; onSaved: (id: string) => void }) {
+export function Flow({ chart, onClose, onSaved, existingTags = [] }: { chart?: Chart; onClose: () => void; onSaved: (id: string) => void; existingTags?: string[] }) {
   const [step, setStepState] = useState<Step>(chart ? 'codes' : 'import')
   // each step starts at its top; the steps share one scroll position otherwise
   const setStep = (t: Step) => {
@@ -411,6 +411,7 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
       {asking && (
         <SaveSheet
           initial={{ title: chart?.title ?? (suggested || defaultTitle()), status: chart?.status ?? 'todo', tags: chart?.tags ?? [] }}
+          existingTags={existingTags}
           onCancel={() => setAsking(false)}
           onSave={(meta) => {
             setAsking(false)
@@ -528,14 +529,20 @@ function defaultTitle() {
   return `图纸 ${d.getMonth() + 1}月${d.getDate()}日 ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
-export function SaveSheet(props: { initial: { title: string; status: Status; tags: string[] }; onCancel: () => void; onSave: (m: { title: string; status: Status; tags: string[] }) => void }) {
+export function SaveSheet(props: { initial: { title: string; status: Status; tags: string[] }; existingTags?: string[]; onCancel: () => void; onSave: (m: { title: string; status: Status; tags: string[] }) => void }) {
   const [title, setTitle] = useState(props.initial.title)
   const [status, setStatus] = useState<Status>(props.initial.status)
   const [tags, setTags] = useState(props.initial.tags.join('，'))
+  const [showExistingTags, setShowExistingTags] = useState(false)
   const parsed = tags
     .split(/[,，、\s]+/)
     .map((t) => t.trim())
     .filter(Boolean)
+  const existingTags = [...new Set((props.existingTags ?? []).map((t) => t.trim()).filter(Boolean))].sort()
+  const toggleExistingTag = (tag: string) => {
+    const next = parsed.includes(tag) ? parsed.filter((t) => t !== tag) : [...parsed, tag]
+    setTags(next.join('，'))
+  }
   return (
     <div className="sheet" onClick={props.onCancel}>
       <form
@@ -564,6 +571,22 @@ export function SaveSheet(props: { initial: { title: string; status: Status; tag
         <label className="field">
           <span>标签（用逗号或空格分开）</span>
           <input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="例如 动物，小号" />
+          {existingTags.length > 0 && (
+            <>
+              <button type="button" className="link tagpicker-toggle" aria-expanded={showExistingTags} onClick={() => setShowExistingTags((open) => !open)}>
+                {showExistingTags ? '收起已有标签' : `从已有标签选择（${existingTags.length}）`}
+              </button>
+              {showExistingTags && (
+                <div className="chips tagpicker" aria-label="选择已有标签">
+                  {existingTags.map((tag) => (
+                    <button type="button" key={tag} className={parsed.includes(tag) ? 'chip on' : 'chip'} aria-pressed={parsed.includes(tag)} onClick={() => toggleExistingTag(tag)}>
+                      {tag}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
         </label>
         <div className="row end">
           <button type="button" className="link" onClick={props.onCancel}>

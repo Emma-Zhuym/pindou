@@ -10,6 +10,21 @@ export const BOARD_INSET: Record<number, number> = { 52: 1, 78: 4, 104: 2 }
 export const MAX_SIDE = 4000 // canvas pixels a side, within what phones allow
 const GUIDE = '#e5243b' // every 5th and 10th grid line
 
+export interface GuideMark {
+  /** grid-line position in board cells, measured from its top/left edge */
+  cell: number
+  /** solid at the first line, then alternating dashed/solid */
+  strong: boolean
+}
+
+/** The pegboard's printed guide positions. The blank rim is part of the board, not the chart. */
+export function boardGuideMarks(side: number): GuideMark[] {
+  const inset = BOARD_INSET[side] ?? 0
+  const marks: GuideMark[] = []
+  for (let cell = inset, i = 0; cell <= side - inset; cell += 5, i++) marks.push({ cell, strong: i % 2 === 0 })
+  return marks
+}
+
 export interface PaintOptions {
   cells: string[]
   cols: number
@@ -26,6 +41,8 @@ export interface PaintOptions {
   done?: string[]
   /** where the chart sits on the pegboard, in pegs from its top left; centred when absent */
   offset?: { x: number; y: number }
+  /** show the chart boundary while the user is positioning it on a pegboard */
+  moving?: boolean
   /** false: no ruler margin; the numbers are drawn apart (paintRulers) so they can stay in view */
   rulers?: boolean
 }
@@ -66,7 +83,7 @@ export function cellAt(o: PaintOptions, x: number, y: number): number {
 }
 
 export function paintChart(canvas: HTMLCanvasElement, o: PaintOptions) {
-  const { cells, cols, rows, cell, board, mirror = false, labels = false, focus = null, done = [] } = o
+  const { cells, cols, rows, cell, board, mirror = false, labels = false, focus = null, done = [], moving = false } = o
   const L = layout(o)
   const dpr = Math.min(window.devicePixelRatio || 1, MAX_SIDE / Math.max(L.width, L.height))
   canvas.width = Math.round(L.width * dpr)
@@ -158,15 +175,25 @@ export function paintChart(canvas: HTMLCanvasElement, o: PaintOptions) {
     path()
     ctx.stroke()
   }
-  // on a chart alone the lines count from the mirrored side too, so they match the printed chart
-  const fromV = (k: number) => (board || !mirror ? k - inset : gw - k)
-  for (let k = inset; k <= gw - inset; k++) if (fromV(k) % 5 === 0) mark(k, true, fromV(k) % 10 === 0)
-  for (let k = inset; k <= gh - inset; k++) if ((k - inset) % 5 === 0) mark(k, false, (k - inset) % 10 === 0)
+  if (board) {
+    // These coordinates belong to the board, so they do not move with the chart.
+    for (const guide of boardGuideMarks(board)) mark(guide.cell, true, guide.strong)
+    for (const guide of boardGuideMarks(board)) mark(guide.cell, false, guide.strong)
+  } else {
+    // On a chart alone the lines count from the mirrored side too, so they match the printed chart.
+    for (let k = 0; k <= gw; k++) {
+      const fromV = mirror ? gw - k : k
+      if (fromV % 5 === 0) mark(k, true, fromV % 10 === 0)
+    }
+    for (let k = 0; k <= gh; k++) if (k % 5 === 0) mark(k, false, k % 10 === 0)
+  }
   ctx.setLineDash([])
-  // the chart's edge, and the pegboard's
-  ctx.lineWidth = 2
-  ctx.strokeStyle = '#000'
-  ctx.strokeRect(x0, y0, cols * cell, rows * cell)
+  // The chart edge is useful only while placing it; the board edge remains visible.
+  if (moving && board) {
+    ctx.lineWidth = 2
+    ctx.strokeStyle = '#000'
+    ctx.strokeRect(x0, y0, cols * cell, rows * cell)
+  }
   if (board) {
     ctx.strokeStyle = '#8e8e93'
     ctx.strokeRect(m, m, L.w * cell, L.h * cell)

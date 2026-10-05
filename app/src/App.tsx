@@ -49,9 +49,11 @@ export default function App() {
   }, [])
 
   if (flow) {
+    const existingTags = [...new Set((charts ?? []).flatMap((c) => c.tags))].sort()
     return (
       <Flow
         chart={flow.chart}
+        existingTags={existingTags}
         onClose={() => {
           setFlow(null)
           window.scrollTo(0, 0)
@@ -241,9 +243,17 @@ function Library({ charts, error, onOpen, onNew }: { charts: Chart[] | null; err
 
 function ChartCard({ chart, onOpen }: { chart: Chart; onOpen: () => void }) {
   const thumb = useBlobUrl(chart.thumb)
+  const canvas = useRef<HTMLCanvasElement>(null)
+  const [brokenThumb, setBrokenThumb] = useState('')
+  useEffect(() => {
+    if (!canvas.current) return
+    drawBoard(canvas.current, chart.cols, chart.rows, chart.cells, 320)
+  }, [chart.cols, chart.rows, chart.cells, thumb, brokenThumb])
   return (
     <button className="chartcard" onClick={onOpen}>
-      <span className="thumb">{thumb && <img src={thumb} alt="" />}</span>
+      <span className="thumb">
+        {thumb && brokenThumb !== thumb ? <img src={thumb} alt="" onError={() => setBrokenThumb(thumb)} /> : <canvas ref={canvas} aria-label="图纸像素预览" />}
+      </span>
       <span className="meta">
         <b>{chart.title}</b>
         <span className="sub">
@@ -447,7 +457,7 @@ function SettingsPage({ onRestored, count }: { onRestored: () => Promise<void>; 
             ))}
           </div>
         </div>
-        {fontFor(skin, font) === 'typewriter' && <p className="hint">文楷打字机的字体从 jsDelivr 下载，只下页面上用到的字；没网时先用系统字体。</p>}
+        {fontFor(skin, font) === 'typewriter' && <p className="hint">英文和数字使用打字机字体，中文使用系统字体；打字机字体从 jsDelivr 下载，没网时先用系统字体。</p>}
       </section>
 
       <h2 className="sectiontitle">AI 读图例</h2>

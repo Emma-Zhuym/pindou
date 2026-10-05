@@ -1,6 +1,6 @@
 /* The chosen type (skin.ts sets data-font on <html>); any font goes with any look.
    system: the default face (nothing here)
-   typewriter: Courier Prime for Latin and digits, LXGW WenKai Mono for Chinese, everywhere
+   typewriter: Courier Prime for Latin and digits, the system Chinese face for Chinese, everywhere
    pixel: Fusion Pixel 12px (OFL 1.1, src/fonts/OFL.txt) for what is read at a glance, at whole
      multiples of its 12px grid where it can be, and never bold (made-up bold smears its squares) */
 
@@ -13,8 +13,8 @@
 /* ---------------------------------------------------------------- typewriter */
 
 [data-font='typewriter'] body {
-  font-family: 'Courier Prime', 'LXGW WenKai Mono', 'PingFang SC', monospace;
-  /* Chinese has no bold here: keep it upright rather than smudged */
+  font-family: 'Courier Prime', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', sans-serif;
+  /* Keep Chinese in the system face; only Latin and digits use Courier Prime. */
   font-synthesis: none;
 }
 [data-font='typewriter'] .title h1,
@@ -32,7 +32,26 @@
 [data-font='pixel'] .chip,
 [data-font='pixel'] .status,
 [data-font='pixel'] .meta b,
-[data-font='pixel'] .beadtitle b {
+[data-font='pixel'] .beadtitle b,
+/* Numbers and MARD codes are the other things the eye scans, especially in
+   the statistics cards and the legend table. Keep explanatory paragraphs
+   in the system face so the page does not become a wall of pixels. */
+[data-font='pixel'] .num,
+[data-font='pixel'] .stats b,
+[data-font='pixel'] .topcodes .barrow > b,
+[data-font='pixel'] .month .count,
+[data-font='pixel'] .month .label,
+[data-font='pixel'] .doingrow .sub,
+[data-font='pixel'] .records b,
+[data-font='pixel'] .records .sub,
+[data-font='pixel'] .coderow .codeinput,
+[data-font='pixel'] .coderow .countinput,
+[data-font='pixel'] .coderow .diff,
+[data-font='pixel'] .userow .code b,
+[data-font='pixel'] .stockrow > b,
+[data-font='pixel'] .stockrow .need,
+[data-font='pixel'] .list b,
+[data-font='pixel'] .legendpanel > .row b {
   font-family: 'Fusion Pixel', 'PingFang SC', sans-serif;
   font-weight: 400;
   letter-spacing: 0;
@@ -64,4 +83,7 @@
   font-family: 'Fusion Pixel', 'PingFang SC', sans-serif;
   font-size: 24px;
   font-weight: 400;
+}
+[data-font='pixel'] .stats b {
+  font-size: 24px;
 }

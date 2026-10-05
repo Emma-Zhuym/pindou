@@ -1,7 +1,8 @@
 /* The hand-drawn look (data-skin="sketch"): everything drawn on fibrous paper. Cards are not
    panes but pencil frames straight on the page; what is chosen is coloured in with yellow crayon,
-   the main button with caramel crayon. Only what floats over the page (bars, the round buttons,
-   sheets) is milky liquid glass. Textures come from tools/paper-assets.ts; the default font is the pixel one. Always light. */
+   the main button with caramel crayon. Small floating controls remain milky liquid glass, while
+   the main bars use the same pencil frame as the cards. Textures come from tools/paper-assets.ts;
+   the default font is the pixel one. Always light. */
 
 :root[data-skin='sketch'] {
   --bg: #f2efe8;
@@ -106,24 +107,50 @@
   box-shadow: none;
 }
 
-/* what floats over the page: milky liquid glass */
+/* small floating controls can stay glass; the main top/bottom bars are drawn below */
 [data-skin='sketch'] .glass,
-[data-skin='sketch'] .tabbar,
 [data-skin='sketch'] .fab,
 [data-skin='sketch'] .circle,
-[data-skin='sketch'] .flowbar .steps,
 [data-skin='sketch'] .flowbar .small.glass,
 [data-skin='sketch'] .legendpanel,
-[data-skin='sketch'] .actionbar,
-[data-skin='sketch'] .codeindex,
-[data-skin='sketch'] .beadpalette,
-[data-skin='sketch'] .beadtop {
+[data-skin='sketch'] .codeindex {
   border: 1px solid var(--glass-edge);
   border-image-source: none;
   background: var(--glass);
   box-shadow: var(--glass-rim);
   backdrop-filter: var(--glass-filter);
   -webkit-backdrop-filter: var(--glass-filter);
+}
+
+/* The bars should feel like the same hand-drawn sheet as the cards, not like a second glass UI. */
+[data-skin='sketch'] .tabbar,
+[data-skin='sketch'] .flowbar .steps,
+[data-skin='sketch'] .actionbar,
+[data-skin='sketch'] .beadpalette,
+[data-skin='sketch'] .beadtop {
+  border-style: solid;
+  border-width: 10px;
+  border-image: url('./paper/pencil.png') 48 / 10px / 0 stretch;
+  background: var(--bg) url('./paper/paper.jpg') repeat;
+  background-size: 640px 640px;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* Return/exit controls are just pencil-like line icons, not glass buttons. */
+[data-skin='sketch'] .circle.glass {
+  border: 0;
+  border-image: none;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+[data-skin='sketch'] .circle.glass .icon {
+  width: 28px;
+  height: 28px;
+  stroke-width: 2.2;
 }
 [data-skin='sketch'] .sheetbody {
   border: 1px solid var(--glass-edge);
