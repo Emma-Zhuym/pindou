@@ -43,6 +43,7 @@ const LEGENDS: Record<string, string> = {
   bled: 'A23:35 C3:415 C6:857 C7:43 C13:129 C24:306 D2:159 D4:54 G4:53 G14:112 G17:110 G18:64 H2:185 H5:309 H6:175 H20:71 M9:26 M14:33',
   trevi: 'C2:144 C19:94 C22:189 C23:117 G4:845 H4:889 H5:215 H11:69 H19:1421 H20:51 M3:103 M4:1389 M7:1241 M9:249 M15:481',
   hogwarts: 'C12:3941 H7:2450 C18:1314 H6:747 C29:626 H16:295 F11:252 C19:216 H5:202 A11:187 M6:128 G14:124 G5:122 G21:107 M15:68 H13:37',
+  bunny: 'C13:183 E17:6 H1:368 H2:232 H7:5',
   pool: 'A15:8 A4:96 A6:1 B1:90 B15:113 B8:100 C13:93 C20:8 C24:999 C8:490 F4:13 G21:2 G5:9 G6:6 G8:40 G9:198 H11:319 H19:34 H2:342 H3:201 H5:468 H7:204 M3:137',
 }
 const FILES: [string, string, string][] = [
@@ -57,6 +58,7 @@ const FILES: [string, string, string][] = [
   ['hogwarts', 'link', 'research/out/xhs/batch2/hogwarts.jpg'],
   ['pool', 'link', 'research/out/xhs/batch2/pool.jpg'],
   ['pool', 'link-b', 'research/out/xhs/batch2/pool-b.jpg'],
+  ['bunny', 'link', 'research/out/xhs/batch3/bunny.jpg'],
 ]
 const agreement = (counts: Map<string, number>, legend: Record<string, number>) => {
   let off = 0

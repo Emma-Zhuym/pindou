@@ -191,6 +191,8 @@ export function fitLabels(render: TextRenderer, stacks: Float32Array[]): LabelFi
 export interface Reader {
   /** score of every code (index = CODES index); `jitter` tries the 8 neighbouring offsets too */
   all(stack: Float32Array, jitter?: boolean): Float32Array
+  /** scores of just these codes (CODES indices), in that order: cheap enough for every cell */
+  some(stack: Float32Array, codes: number[], jitter?: boolean): Float32Array
 }
 
 export function makeReader(render: TextRenderer, fit: LabelFit): Reader {
@@ -210,6 +212,22 @@ export function makeReader(render: TextRenderer, fit: LabelFit): Reader {
             for (let i = 0; i < n; i++) s += b[o + i] * v[i]
             if (s > out[c]) out[c] = s
           }
+        }
+      }
+      return out
+    },
+    some(stack, codes, jitter = true) {
+      const out = new Float32Array(codes.length).fill(-1)
+      const range = jitter ? [-1, 0, 1] : [0]
+      for (const ex of range) {
+        for (const ey of range) {
+          const v = shiftedUnit(stack, fit.dx + ex, fit.dy + ey, tmp)
+          codes.forEach((c, k) => {
+            let s = 0
+            const o = c * n
+            for (let i = 0; i < n; i++) s += b[o + i] * v[i]
+            if (s > out[k]) out[k] = s
+          })
         }
       }
       return out

@@ -6,7 +6,7 @@
 //     colour, local swatches and, above all, the printed counts.
 // Both return groups in the shape the review screens use: one group per code, cells pointing at it.
 import { CORE, INK, stack, unit } from './cells'
-import { CATALOGUE, type Rgb, type TextRenderer } from './glyphs'
+import { CATALOGUE, CODES, makeReader, type Reader, type Rgb, type TextRenderer } from './glyphs'
 import type { Raster } from './grid'
 import { findLegend } from './legendArea'
 import { readCounts } from './legendCounts'
@@ -34,6 +34,7 @@ export interface LegendEntry {
 }
 
 const NEAR = 30
+const TWIN = 12 // swatch colours this close are one printed colour: only the code tells them apart
 const LOOK_ALIKE = 60 // colours this much further than a cell's nearest still compete on the printed code
 const LOOK_COLOUR = 120 // colour distance worth one unit of label likeness
 const NO_CODE = 0.35 // below this likeness to every code, a cell prints none
@@ -72,7 +73,7 @@ function nearest(rec: Recognition, colours: Rgb[]): { assign: Int16Array; covera
  * closest to its colour); then every cell takes the code whose look and colour together fit it
  * best among the colours near its own. Learnt from the chart itself, so no font is assumed.
  */
-function refineByLabels(rec: Recognition, colours: Rgb[], assign: Int16Array): Int16Array {
+function refineByLabels(rec: Recognition, colours: Rgb[], assign: Int16Array, examples?: (number[] | null)[]): Int16Array {
   const { fill, share, ink } = rec.cells
   const G = colours.length
   const cd = (i: number, g: number) => dist(fill[i * 3], fill[i * 3 + 1], fill[i * 3 + 2], colours[g])
@@ -81,6 +82,8 @@ function refineByLabels(rec: Recognition, colours: Rgb[], assign: Int16Array): I
     if (g >= 0 && share[i] > 0.06) members[g].push(i)
   })
   const looks = members.map((m, g) => {
+    const given = examples?.[g]
+    if (given) return unit(stack(rec.cells, given))
     if (m.length < 3) return null
     const sure = [...m].sort((a, b) => cd(a, g) - cd(b, g)).slice(0, Math.max(3, Math.min(400, Math.ceil(m.length / 2))))
     return unit(stack(rec.cells, sure))
@@ -174,8 +177,46 @@ function groupsFrom(rec: Recognition, codes: string[], colours: Rgb[], assign: I
   return codes.map((code, g) => ({ code, score: 1, colour: colours[g], label: stack(rec.cells, members[g].slice(0, 400)) }))
 }
 
+/**
+ * Codes printed in the same colour (H1 and H2 both drawn plain white) cannot be told apart by
+ * colour, so the cells nearest each one's colour are a mixture and teach a blurred print. For such
+ * twins the cells to learn from are picked by reading: those whose print reads clearly as one twin
+ * rather than the others. Only the examples change; every cell is still decided by refineByLabels.
+ */
+function twinExamples(rec: Recognition, names: string[], colours: Rgb[], assign: Int16Array, reader: Reader): (number[] | null)[] {
+  const G = names.length
+  const twinOf = names.map((_, g) => g)
+  for (let g = 0; g < G; g++)
+    for (let h = g + 1; h < G; h++) if (twinOf[h] === h && dist(colours[g].r, colours[g].g, colours[g].b, colours[h]) < TWIN) twinOf[h] = twinOf[g]
+  const sets = new Map<number, number[]>()
+  twinOf.forEach((t, g) => sets.set(t, [...(sets.get(t) ?? []), g]))
+  const out: (number[] | null)[] = names.map(() => null)
+  const { ink, share } = rec.cells
+  const cell = new Float32Array(INK * INK)
+  for (const set of sets.values()) {
+    if (set.length < 2 || !set.every((g) => CODES.includes(names[g]))) continue
+    const idx = set.map((g) => CODES.indexOf(names[g]))
+    const picks: [number, number][][] = set.map(() => [])
+    for (let i = 0; i < assign.length; i++) {
+      if (!set.includes(assign[i]) || share[i] <= 0.06) continue
+      for (let k = 0; k < cell.length; k++) cell[k] = ink[i * INK * INK + k] / 255
+      const sc = reader.some(cell, idx)
+      let best = 0
+      for (let k = 1; k < sc.length; k++) if (sc[k] > sc[best]) best = k
+      let second = -Infinity
+      for (let k = 0; k < sc.length; k++) if (k !== best) second = Math.max(second, sc[k])
+      picks[best].push([i, sc[best] - second])
+    }
+    set.forEach((g, k) => {
+      const clear = picks[k].sort((a, b) => b[1] - a[1]).slice(0, Math.max(3, Math.min(400, Math.ceil(picks[k].length / 2))))
+      if (clear.length >= 3) out[g] = clear.map(([i]) => i)
+    })
+  }
+  return out
+}
+
 /** Several swatches named alike (a misread) become one group; the first colour stays the reference. */
-function merge(rec: Recognition, codes: string[], colours: Rgb[], unsure: boolean[]) {
+function merge(rec: Recognition, codes: string[], colours: Rgb[], unsure: boolean[], reader?: Reader) {
   const first = new Map<string, number>()
   const keep: number[] = []
   const to = codes.map((c, k) => {
@@ -188,7 +229,8 @@ function merge(rec: Recognition, codes: string[], colours: Rgb[], unsure: boolea
   const names = keep.map((k) => codes[k])
   const refs = keep.map((k) => colours[k])
   const { assign: raw, coverage } = nearest(rec, colours)
-  const assign = refineByLabels(rec, refs, raw.map((k) => (k < 0 ? -1 : to[k])))
+  const byColour = raw.map((k) => (k < 0 ? -1 : to[k]))
+  const assign = refineByLabels(rec, refs, byColour, reader ? twinExamples(rec, names, refs, byColour, reader) : undefined)
   return { groups: groupsFrom(rec, names, refs, assign), assign, coverage, unsureName: keep.map((k) => unsure[k]) }
 }
 
@@ -209,6 +251,7 @@ export function readLocally(img: Raster, rec: Recognition, render: TextRenderer)
     names.map((n) => n.code),
     named.map((s) => s.colour),
     names.map((n) => !n.sure),
+    makeReader(render, rec.fit),
   )
   // the legend's own counts, read with digits learnt from how many cells each swatch got
   const perSwatch = named.map(() => 0)

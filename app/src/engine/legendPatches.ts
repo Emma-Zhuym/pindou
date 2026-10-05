@@ -13,6 +13,7 @@ const WORK_CELL = 12
 const FLAT = 28 // a patch grows over pixels this close to its running mean
 const MATCH = 40 // a patch colour this close to a board colour is that colour's swatch
 const SAME = 10 // printed in the same ink
+const SAME_SIZE = 0.15 // and the same size, each side within this share
 
 interface Patch {
   x0: number
@@ -122,13 +123,25 @@ export function findSwatchesByColour(img: Raster, rec: Recognition, trace?: (sta
     const h = p.y1 - p.y0 + 1
     return w >= cell * 0.35 && h >= cell * 0.35 && w <= cell * 12 && h <= cell * 12 && w / h < 3.5 && h / w < 3.5 && p.solid >= 0.8 && p.n / (w * h) >= 0.3
   })
-  const matched = shaped.filter((p) => boardColours.some((c) => dist(p, c) < MATCH))
+  // the rulers printed along the board's edges (row and column numbers) sit within a cell of it
+  const ruler = (p: Patch) => {
+    const across = (a0: number, a1: number, b0: number, b1: number) => a0 >= b0 - cell * 0.5 && a1 <= b1 + cell * 0.5
+    const strip = (lo: number, hi: number, edge: number, outward: 1 | -1) => (outward > 0 ? lo >= edge - 2 && hi <= edge + cell * 1.5 : hi <= edge + 2 && lo >= edge - cell * 1.5)
+    return (
+      (across(p.x0, p.x1, board.x0, board.x1) && (strip(p.y0, p.y1, board.y1, 1) || strip(p.y0, p.y1, board.y0, -1))) ||
+      (across(p.y0, p.y1, board.y0, board.y1) && (strip(p.x0, p.x1, board.x1, 1) || strip(p.x0, p.x1, board.x0, -1)))
+    )
+  }
+  const matched = shaped.filter((p) => !ruler(p) && boardColours.some((c) => dist(p, c) < MATCH))
   if (!matched.length) return []
 
   const area = (p: Patch) => (p.x1 - p.x0 + 1) * (p.y1 - p.y0 + 1)
   // Page furniture (count boxes, ruler cells, text in one ink) repeats one exact colour at one
-  // size; swatches of look-alike codes still differ by more than a few levels.
-  const same = (p: Patch, q: Patch) => dist(p, q) < SAME && Math.abs(area(p) - area(q)) < 0.3 * area(p)
+  // size; swatches of look-alike codes still differ by more than a few levels. Width and height
+  // are compared apart: a white code box beside a white count box can be close in area alone.
+  const span = (p: Patch) => [p.x1 - p.x0 + 1, p.y1 - p.y0 + 1]
+  const near = (a: number, b: number) => Math.abs(a - b) < SAME_SIZE * a
+  const same = (p: Patch, q: Patch) => dist(p, q) < SAME && near(span(p)[0], span(q)[0]) && near(span(p)[1], span(q)[1])
   const unique = matched.filter((p) => matched.filter((q) => same(p, q)).length < 3)
   if (!unique.length) return []
 
