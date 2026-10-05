@@ -96,7 +96,7 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
         } else if (needsHelp(localReading)) note += '。可以在「色号」页让 AI 读图例（需先在设置里填 Key），或手动核对'
       }
       if (got) {
-        reading = fitList(first, got.entries, localReading)
+        reading = fitList(first, got.entries, localReading, renderText)
         note = `AI 读出图例上 ${got.entries.length} 个色号，已按颜色和颗数对到格子上`
       }
       const printed: Record<string, number> = got ? Object.fromEntries(got.entries.filter((e) => e.count !== undefined).map((e) => [e.code, e.count!])) : {}
@@ -176,7 +176,7 @@ export function Flow({ chart, onClose, onSaved }: { chart?: Chart; onClose: () =
     if (!rect) throw new Error('先框选图例')
     const got = await readLegendWithAi(img, rect, ai)
     const list = got.entries
-    const r = applyReading(base, fitList(base, list, local))
+    const r = applyReading(base, fitList(base, list, local, renderText))
     setAiLegend(got)
     setLocalUnsure(false)
     const next = r.groups.map((g) => g.code)

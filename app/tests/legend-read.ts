@@ -80,7 +80,7 @@ for (const [key, which, file] of FILES) {
   const t = Date.now()
   const local = readLocally(img, rec, render)
   const t1 = Date.now()
-  const fitted = fitList(rec, list, local)
+  const fitted = fitList(rec, list, local, render)
   const t2 = Date.now()
   const printed = local?.printed ?? {}
   const readRight = Object.entries(printed).filter(([c, n]) => truth[c] === n).length

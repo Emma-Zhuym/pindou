@@ -6,7 +6,7 @@
 //     colour, local swatches and, above all, the printed counts.
 // Both return groups in the shape the review screens use: one group per code, cells pointing at it.
 import { CORE, INK, stack, unit } from './cells'
-import { CATALOGUE, CODES, makeReader, type Reader, type Rgb, type TextRenderer } from './glyphs'
+import { CATALOGUE, CODES, hasLabel, makeReader, type Reader, type Rgb, type TextRenderer } from './glyphs'
 import type { Raster } from './grid'
 import { findLegend } from './legendArea'
 import { readCounts } from './legendCounts'
@@ -34,6 +34,10 @@ export interface LegendEntry {
 }
 
 const NEAR = 30
+const PRINT_MIN_CELLS = 5 // a group this small is read too faintly to rename
+const PRINT_READ = 0.6 // a clear reading of a stacked label
+const PRINT_MARGIN = 0.03 // ...and this far ahead of the next code and of its current name
+const PRINT_COLOUR = 90 // ...naming a code whose catalogue colour is this near the cells (or nearer than the old name's)
 const TWIN = 12 // swatch colours this close are one printed colour: only the code tells them apart
 const LOOK_ALIKE = 60 // colours this much further than a cell's nearest still compete on the printed code
 const LOOK_COLOUR = 120 // colour distance worth one unit of label likeness
@@ -270,7 +274,7 @@ export function readLocally(img: Raster, rec: Recognition, render: TextRenderer)
  * board's actual colours (k-means); finally codes of similar colour swap places whenever that
  * brings the cell counts closer to the printed ones.
  */
-export function fitList(rec: Recognition, list: LegendEntry[], local?: Reading | null): Reading {
+export function fitList(rec: Recognition, list: LegendEntry[], local?: Reading | null, render?: TextRenderer): Reading {
   const codes = list.map((e) => e.code)
   const seed = new Map<string, Rgb>()
   local?.groups.forEach((g) => seed.set(g.code, g.colour))
@@ -324,10 +328,73 @@ export function fitList(rec: Recognition, list: LegendEntry[], local?: Reading |
     assign = assign.map((g) => (g < 0 ? -1 : codeOf[g]))
     centres = codes.map((_, k) => centres[order[k]])
   }
+  // the print on the cells has the last word on names: colours and counts only guessed
+  if (render) {
+    const named = nameByPrint(rec, codes, centres, assign, makeReader(render, rec.fit))
+    if (named) {
+      assign = named
+      centres = codes.map((_, k) => meanFill(rec, assign, k) ?? centres[k])
+    }
+  }
   assign = refineByLabels(rec, centres, assign)
   const coverage = nearest(rec, centres).coverage
   const named = new Set(local?.groups.map((g) => g.code))
   return { groups: groupsFrom(rec, codes, centres, assign), assign, coverage, unsureName: codes.map((c) => !named.has(c)), swatches: local?.swatches ?? [] }
+}
+
+/**
+ * Each group's cells stacked and read: where the print reads clearly as another code of the list,
+ * the group takes that name (two groups reading the same code become one). Colour and printed
+ * counts cannot tell pale or dark look-alikes apart (H10, A23 and G18 all near white); the code
+ * printed in every cell can. Only a code whose colour fits the cells is taken: small print misreads
+ * land on codes of any colour. Null when nothing changes.
+ */
+function nameByPrint(rec: Recognition, codes: string[], centres: Rgb[], assign: Int16Array, reader: Reader): Int16Array | null {
+  const { share } = rec.cells
+  const members: number[][] = codes.map(() => [])
+  assign.forEach((g, i) => {
+    if (g >= 0 && share[i] > 0.06) members[g].push(i)
+  })
+  const idx = codes.map((c) => CODES.indexOf(c))
+  const target = codes.map((_, k) => k)
+  let changed = false
+  codes.forEach((_, k) => {
+    if (members[k].length < PRINT_MIN_CELLS) return
+    const st = stack(rec.cells, members[k].slice(0, 400))
+    if (!hasLabel(st)) return
+    const all = reader.all(st)
+    const sc = idx.map((c) => (c >= 0 ? all[c] : -1))
+    let best = 0
+    for (let j = 1; j < sc.length; j++) if (sc[j] > sc[best]) best = j
+    let second = -Infinity
+    for (let j = 0; j < sc.length; j++) if (j !== best) second = Math.max(second, sc[j])
+    // a misreading of small print lands on codes of any colour; the right code looks like its cells
+    const c = centres[k]
+    const off = (code: string) => (CATALOGUE[code] ? dist(c.r, c.g, c.b, CATALOGUE[code]) : Infinity)
+    const plausible = off(codes[best]) <= Math.max(PRINT_COLOUR, off(codes[k]))
+    if (best !== k && plausible && sc[best] >= PRINT_READ && sc[best] - second >= PRINT_MARGIN && sc[best] - sc[k] >= PRINT_MARGIN) {
+      target[k] = best
+      changed = true
+    }
+  })
+  return changed ? assign.map((g) => (g < 0 ? -1 : target[g])) : null
+}
+
+/** the mean fill of the cells given code k, or null if none */
+function meanFill(rec: Recognition, assign: Int16Array, k: number): Rgb | null {
+  const { fill } = rec.cells
+  let r = 0
+  let g = 0
+  let b = 0
+  let n = 0
+  assign.forEach((a, i) => {
+    if (a !== k) return
+    r += fill[i * 3]
+    g += fill[i * 3 + 1]
+    b += fill[i * 3 + 2]
+    n++
+  })
+  return n ? { r: r / n, g: g / n, b: b / n } : null
 }
 
 /** The recognition with its groups replaced by a legend reading. A cell is worth a second look
