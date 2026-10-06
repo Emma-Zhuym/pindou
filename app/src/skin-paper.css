@@ -58,10 +58,13 @@
   background: var(--glass);
   box-shadow: var(--glass-rim);
 }
+/* sheets: milky liquid glass, a little thicker than the bars so text stays easy to read */
 [data-skin='paper'] .sheetbody {
   border: 1px solid var(--glass-edge);
-  background: rgba(250, 248, 243, 0.9);
+  background: rgba(255, 253, 248, 0.62);
   box-shadow: var(--glass-rim);
+  backdrop-filter: blur(26px) saturate(150%);
+  -webkit-backdrop-filter: blur(26px) saturate(150%);
 }
 [data-skin='paper'] .sheet {
   background: rgba(58, 47, 39, 0.22);

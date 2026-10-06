@@ -237,7 +237,8 @@ input:focus-visible {
   top: calc(64px + env(safe-area-inset-top));
 }
 .flow .actionbar {
-  bottom: calc(20px + env(safe-area-inset-bottom));
+  /* above the step's confirm button */
+  bottom: calc(80px + env(safe-area-inset-bottom));
 }
 .page-error {
   max-width: 960px;
@@ -417,6 +418,40 @@ h2 {
 .primary:disabled {
   opacity: 0.4;
   cursor: default;
+}
+.primary,
+.small,
+.fab {
+  transition: transform 0.18s cubic-bezier(0.3, 1.6, 0.5, 1), opacity 0.2s ease;
+}
+.primary:not(:disabled):active,
+.small:not(:disabled):active,
+.fab:not(:disabled):active {
+  transform: scale(0.95);
+}
+
+/* a step's confirm button, kept on screen: often the counts already say the step is right */
+.nextbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  z-index: 14;
+  display: flex;
+  justify-content: center;
+  padding: 0 16px;
+  pointer-events: none;
+  animation: next-in 0.45s cubic-bezier(0.22, 1.2, 0.36, 1) both;
+}
+.nextbar > .primary {
+  width: min(560px, 100%);
+  pointer-events: auto;
+}
+@keyframes next-in {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
 }
 
 .segmented {
@@ -1001,7 +1036,9 @@ img.boardview {
   justify-content: center;
   padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
   background: rgba(0, 0, 0, 0.28);
+  animation: sheet-dim 0.22s ease-out both;
 }
+/* liquid glass: the page shows through, blurred */
 .sheetbody {
   display: flex;
   flex-direction: column;
@@ -1013,9 +1050,22 @@ img.boardview {
   padding: 20px 16px 16px;
   border: 1px solid var(--glass-edge);
   border-radius: 36px;
-  background: color-mix(in srgb, var(--card) 86%, transparent);
+  background: var(--glass);
+  box-shadow: var(--glass-rim, none);
   backdrop-filter: var(--glass-filter);
   -webkit-backdrop-filter: var(--glass-filter);
+  animation: sheet-rise 0.42s cubic-bezier(0.22, 1.2, 0.36, 1) both;
+}
+@keyframes sheet-dim {
+  from {
+    background: rgba(0, 0, 0, 0);
+  }
+}
+@keyframes sheet-rise {
+  from {
+    opacity: 0;
+    transform: translateY(48px) scale(0.96);
+  }
 }
 .sheetbody.wide {
   width: min(900px, 100%);
@@ -1130,8 +1180,16 @@ img.boardview {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .tabbar button {
+  .tabbar button,
+  .primary,
+  .small,
+  .fab {
     transition: none;
+  }
+  .sheet,
+  .sheetbody,
+  .nextbar {
+    animation: none;
   }
 }
 

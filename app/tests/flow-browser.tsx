@@ -6,6 +6,13 @@ import { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Flow } from '../src/flow/Flow'
 import '../src/App.css'
+import '../src/skin-paper.css'
+import '../src/skin-sketch.css'
+import '../src/fonts.css'
+import { applyLook } from '../src/skin'
+
+// the look chosen on this origin (pindou.skin / pindou.font), as the app applies it
+applyLook()
 
 if (!import.meta.env.DEV) throw new Error('This fixture is for the development server only')
 if (location.port !== '5176') throw new Error('Use the isolated test origin on port 5176')

@@ -417,7 +417,7 @@ export function Flow({ chart, onClose, onSaved, existingTags = [] }: { chart?: C
         )}
         {step === 'wall' && img && rec && cellsReady && <>
           <WallPage img={img} rec={rec} names={names} assign={assign} counts={counts} legend={legend} onAssign={setAssign} onNames={(v) => { setNamesState(v); setDirty(true); setCellsReviewed(false) }} onAskCells={askCells} />
-          <div className="page"><button className="primary" disabled={!!busy} onClick={() => { setCellsReviewed(true); setStep('list') }}>格子已核对，查看原图对比</button></div>
+          <div className="nextbar"><button className="primary" disabled={!!busy} onClick={() => { setCellsReviewed(true); setStep('list') }}>格子已核对，查看原图对比</button></div>
         </>}
         {step === 'list' && img && rec && cellsReady && cellsReviewed && <>
           <div className="page"><BoardComparison img={img} rec={rec} names={names} assign={assign} /><button className="link" onClick={() => setStep('wall')}>返回修改格子</button></div>
@@ -775,9 +775,11 @@ function ImportPage(props: {
           )}
           <BoardCheck key={`${rec.cells.r0},${rec.cells.c0},${rec.cells.rows},${rec.cells.cols}`} img={img} rec={rec} busy={!!busy} printedSize={printedSize} onApply={onBoard} onPendingChange={onPendingBoard} />
           {pendingBoard && <p className="hint">先应用调整后的范围，再读取图例。</p>}
-          <button className="primary" disabled={!!busy || pendingBoard} onClick={onNext}>
-            网格已确认，下一步读色号和颗数
-          </button>
+          <div className="nextbar">
+            <button className="primary" disabled={!!busy || pendingBoard} onClick={onNext}>
+              网格已确认，下一步读色号和颗数
+            </button>
+          </div>
         </>
       )}
     </div>
@@ -1386,9 +1388,11 @@ function CodesPage(props: {
       <p className="hint">
         {rec ? '色号和图例颗数已确认。需要改图例时，改完会重新识别格子，替换之前的格子修改。' : '请对照上方原图，核查全部色号和颗数；漏号可插入，错号可改或删除。未读清的颗数可以留空，不会强行凑数。确认之前不会分类格子，也不会调用格子 AI。'}
       </p>
-      <button className="primary" disabled={busy || !live.length || live.some((c) => !(c in CATALOGUE)) || (!rec && dupes.size > 0)} onClick={onNext}>
-        {rec ? '下一步：核对格子' : '色号和颗数已核对，开始识别格子'}
-      </button>
+      <div className="nextbar">
+        <button className="primary" disabled={busy || !live.length || live.some((c) => !(c in CATALOGUE)) || (!rec && dupes.size > 0)} onClick={onNext}>
+          {rec ? '下一步：核对格子' : '色号和颗数已核对，开始识别格子'}
+        </button>
+      </div>
     </div>
   )
 }
@@ -1859,6 +1863,8 @@ function ListPage(props: { counts: Map<string, number>; legend: Record<string, n
         >
           {copied ? '已复制' : '复制清单'}
         </button>
+      </div>
+      <div className="nextbar">
         <button className="primary" onClick={onSave}>
           保存到图纸库
         </button>

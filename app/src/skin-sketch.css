@@ -109,7 +109,6 @@
 
 /* small floating controls can stay glass; the main top/bottom bars are drawn below */
 [data-skin='sketch'] .glass,
-[data-skin='sketch'] .fab,
 [data-skin='sketch'] .circle,
 [data-skin='sketch'] .flowbar .small.glass,
 [data-skin='sketch'] .legendpanel,
@@ -124,6 +123,7 @@
 
 /* The bars should feel like the same hand-drawn sheet as the cards, not like a second glass UI. */
 [data-skin='sketch'] .tabbar,
+[data-skin='sketch'] .fab,
 [data-skin='sketch'] .flowbar .steps,
 [data-skin='sketch'] .actionbar,
 [data-skin='sketch'] .beadpalette,
@@ -131,11 +131,36 @@
   border-style: solid;
   border-width: 10px;
   border-image: url('./paper/pencil.png') 48 / 10px / 0 stretch;
+  /* the frame is drawn square: a rounded fill would show its corners past the pencil line */
+  border-radius: 4px;
   background: var(--bg) url('./paper/paper.jpg') repeat;
   background-size: 640px 640px;
   box-shadow: none;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+}
+/* inside the bars, what is chosen is crayon on paper, not a pill */
+[data-skin='sketch'] .tabbar button,
+[data-skin='sketch'] .flowbar .steps button {
+  border-radius: 4px;
+}
+[data-skin='sketch'] .tabbar {
+  padding: 0;
+}
+/* the frame takes the bar's padding: the step names keep to one line */
+[data-skin='sketch'] .flowbar .steps {
+  padding: 0;
+}
+[data-skin='sketch'] .flowbar .steps button {
+  padding: 0 2px;
+  white-space: nowrap;
+}
+[data-skin='sketch'] .tabbar button {
+  height: 52px;
+}
+[data-skin='sketch'] .fab {
+  width: 72px;
+  height: 72px;
 }
 
 /* Return/exit controls are just pencil-like line icons, not glass buttons. */
@@ -152,13 +177,34 @@
   height: 28px;
   stroke-width: 2.2;
 }
+/* sheets: a solid sheet of the same paper, pencil-framed, laid down a little askew */
 [data-skin='sketch'] .sheetbody {
-  border: 1px solid var(--glass-edge);
-  background: rgba(246, 243, 236, 0.92);
-  box-shadow: var(--glass-rim);
+  border-style: solid;
+  border-width: 10px;
+  border-image: url('./paper/pencil.png') 48 / 10px / 0 stretch;
+  border-radius: 4px;
+  background: var(--bg) url('./paper/paper.jpg') repeat;
+  background-size: 640px 640px;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  transform: rotate(-0.3deg);
+  animation-name: paper-drop;
 }
 [data-skin='sketch'] .sheet {
   background: rgba(58, 47, 39, 0.22);
+}
+@keyframes paper-drop {
+  from {
+    opacity: 0;
+    transform: translateY(56px) rotate(-3deg);
+  }
+  70% {
+    transform: translateY(-4px) rotate(0.4deg);
+  }
+  to {
+    transform: rotate(-0.3deg);
+  }
 }
 
 /* fields: a pencil line to write on */
@@ -201,4 +247,16 @@
 [data-skin='sketch'] .flow .flowbar {
   background: var(--bg) url('./paper/paper.jpg') repeat;
   background-size: 640px 640px;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-skin='sketch'] .sheetbody {
+    animation: none;
+  }
+}
+
+/* the step's confirm button is crayon, see-through at its edges: it floats on a strip of paper */
+[data-skin='sketch'] .nextbar {
+  bottom: 0;
+  padding: 28px 16px calc(14px + env(safe-area-inset-bottom));
+  background: linear-gradient(rgba(242, 239, 232, 0), var(--bg) 45%);
 }
