@@ -27,6 +27,8 @@ export interface Recognition {
   unsure: Uint8Array
   /** 1 for a cell left empty (plain background, nothing printed), whatever the groups say */
   empty: Uint8Array
+  /** cells of one colour and one print, the most typical first, once a legend list is laid on */
+  classes?: number[][]
 }
 
 /** below this likeness to the colour's own printed code, ink on a background cell is a watermark */

@@ -166,18 +166,34 @@ export function Flow({ chart, onClose, onSaved, existingTags = [] }: { chart?: C
     }
   }
 
-  /** Ask the vision model to read the doubtful cells again (from the review page). */
+  /** Ask the vision model to read each print class's typical cells, then the cells still in doubt
+   *  (from the review page). */
   async function askCells(): Promise<string> {
     if (!img || !rec) return ''
-    setBusy('AI 正在核对待确认格子…')
+    setBusy('AI 正在读每一堆格子印的色号…')
     const aiCalls: AiRequestEvent[] = []
+    const record = (event: AiRequestEvent) => { aiCalls.push(event); trace(event) }
     try {
-      const checked = await checkCells(img, rec, names, assign, loadAiSettings(), (event) => { aiCalls.push(event); trace(event) })
-      if (!checked) return '没有需要核对的格子'
-      setRec(checked.rec)
-      setNamesState(checked.names)
-      setAssign(checked.assign)
-      return `AI 核对了 ${checked.asked} 格，改了 ${checked.changed} 格${checked.unread ? `，${checked.unread} 格未读出色号，仍需手动核对` : ''}${checked.vetoed ? `，拦下 ${checked.vetoed} 个颜色不相容的改动` : ''}${formatAiCalls(aiCalls)}`
+      const ai = loadAiSettings()
+      const notes: string[] = []
+      let current = { rec, names, assign }
+      const named = await nameClassesWithAi(img, rec, names, assign, ai, record)
+      if (named) {
+        current = named
+        const sure = named.asked - named.unread - named.renamed
+        notes.push(`读了 ${named.asked} 堆的字：${[sure && `${sure} 堆名字没错`, named.renamed && `改了 ${named.renamed} 堆共 ${named.moved} 格`, named.unread && `${named.unread} 堆没读清，仍按原来的名字`].filter(Boolean).join('，')}`)
+      }
+      setBusy('AI 正在核对没把握的格子…')
+      const checked = await checkCells(img, current.rec, current.names, current.assign, ai, record)
+      if (checked) {
+        current = checked
+        notes.push(`看了 ${checked.asked} 个没把握的格子，改了 ${checked.changed} 格${checked.unread ? `，${checked.unread} 格没读出色号，仍需手动核对` : ''}${checked.vetoed ? `，拦下 ${checked.vetoed} 个颜色不相容的改动` : ''}`)
+      }
+      if (!notes.length) return '没有需要核对的格子'
+      setRec(current.rec)
+      setNamesState(current.names)
+      setAssign(current.assign)
+      return `AI ${notes.join('；')}${formatAiCalls(aiCalls)}`
     } finally { setBusy('') }
   }
 
@@ -437,6 +453,63 @@ function doubtfulCells(rec: Recognition, assign: Int16Array): number[] {
   }
   // least sure first, in case there are more than one look can take
   return out.sort((a, b) => rec.confidence[a] - rec.confidence[b]).slice(0, MAX_CELLS_CHECKED)
+}
+
+const CLASS_SAMPLES = 3 // typical cells read per print class
+const CLASS_VOTES = 2 // ...that must agree on a code to rename the class
+const MAX_CLASSES = 60 // classes read per run (two requests at most)
+
+/** The print classes worth reading: doubtful ones first, then the largest. */
+function classesToRead(rec: Recognition): number[][] {
+  return (rec.classes ?? [])
+    .filter((c) => c.length >= CLASS_SAMPLES)
+    .sort((a, b) => rec.unsure[b[0]] - rec.unsure[a[0]] || b.length - a.length)
+    .slice(0, MAX_CLASSES)
+}
+
+/**
+ * Each print class (cells of one colour and one print, engine/printClasses.ts) named by the model
+ * from its most typical cells. A whole code read wrong by colour and counts (two codes of one
+ * colour and similar counts swapped) is a class whose cells all print another code: a few clear
+ * cells settle it, and the class's cells move together. Cells the person already moved stay put.
+ */
+async function nameClassesWithAi(img: HTMLImageElement, rec: Recognition, names: string[], assign: Int16Array, ai: AiSettings, trace?: (event: AiRequestEvent) => void) {
+  const classes = classesToRead(rec)
+  const codes = [...new Set(names.filter(Boolean))]
+  if (!classes.length || !codes.length) return null
+  const read = await readCellsWithAi(img, rec, classes.flatMap((c) => c.slice(0, CLASS_SAMPLES)), codes, ai, trace, 'group-names')
+  const nextNames = [...names]
+  const nextAssign = Int16Array.from(assign)
+  const unsure = Uint8Array.from(rec.unsure)
+  let renamed = 0
+  let moved = 0
+  let unread = 0
+  for (const cells of classes) {
+    // the class's code now: the commonest among its cells
+    const have = new Map<number, number>()
+    for (const i of cells) have.set(assign[i], (have.get(assign[i]) ?? 0) + 1)
+    const from = [...have].sort((a, b) => b[1] - a[1])[0][0]
+    const votes = new Map<string, number>()
+    for (const i of cells.slice(0, CLASS_SAMPLES)) {
+      const code = read.get(i)
+      if (code) votes.set(code, (votes.get(code) ?? 0) + 1)
+    }
+    const [code, n] = [...votes].sort((a, b) => b[1] - a[1])[0] ?? ['', 0]
+    if (n < CLASS_VOTES) {
+      unread++
+      continue
+    }
+    let to = nextNames.indexOf(code)
+    if (to < 0) to = nextNames.push(code) - 1
+    if (to !== from) renamed++
+    for (const i of cells) {
+      if (assign[i] !== from) continue
+      if (to !== from) moved++
+      nextAssign[i] = to
+      unsure[i] = 0
+    }
+  }
+  return { names: nextNames, assign: nextAssign, rec: { ...rec, unsure }, asked: classes.length, renamed, moved, unread }
 }
 
 const colourDistance = (a: { r: number; g: number; b: number }, b: { r: number; g: number; b: number }) => Math.abs(a.r - b.r) + Math.abs(a.g - b.g) + Math.abs(a.b - b.b)
@@ -1356,6 +1429,8 @@ function WallPage(props: {
   const [checking, setChecking] = useState(false)
   const [checkNote, setCheckNote] = useState('')
   const doubtful = useMemo(() => doubtfulCells(rec, assign).length, [rec, assign])
+  const toRead = useMemo(() => classesToRead(rec).length, [rec])
+  const requests = Math.ceil((toRead * CLASS_SAMPLES) / CELLS_PER_REQUEST) + Math.ceil(doubtful / CELLS_PER_REQUEST)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [picking, setPicking] = useState(false)
   const [custom, setCustom] = useState('')
@@ -1499,7 +1574,7 @@ function WallPage(props: {
           </button>
         )}
       </div>
-      {ai.key && ai.model && doubtful > 0 && (
+      {ai.key && ai.model && (toRead > 0 || doubtful > 0) && (
         <div className="row">
           <button
             className="link"
@@ -1516,7 +1591,7 @@ function WallPage(props: {
               }
             }}
           >
-            {checking ? 'AI 核对中…' : `让 AI 核对没把握的 ${doubtful} 格（${Math.ceil(doubtful / CELLS_PER_REQUEST)} 次请求）`}
+            {checking ? 'AI 核对中…' : `让 AI 核对：读每堆的字（${toRead} 堆）${doubtful ? `，再看没把握的 ${doubtful} 格` : ''}（约 ${requests} 次请求）`}
           </button>
           {checkNote && <span className="sub">{checkNote}</span>}
         </div>

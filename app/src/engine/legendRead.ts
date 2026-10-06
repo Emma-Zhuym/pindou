@@ -12,6 +12,7 @@ import { findLegend } from './legendArea'
 import { readCounts } from './legendCounts'
 import { nameSwatches } from './legendNames'
 import { findSwatchesByColour } from './legendPatches'
+import { nameClasses, printClasses } from './printClasses'
 import { findLegendSwatches, type LegendSwatch } from './legendSwatches'
 import type { Group, Recognition } from './recognize'
 
@@ -26,6 +27,10 @@ export interface Reading {
   swatches: LegendSwatch[]
   /** counts read off the legend print, by code (local reading only; the AI list has its own) */
   printed?: Record<string, number>
+  /** per cell: worth a second look (a list's reading; a local one judges by colour and names) */
+  doubt?: Uint8Array
+  /** cells of one colour and one print, the most typical first (a list's reading) */
+  classes?: number[][]
 }
 
 export interface LegendEntry {
@@ -338,8 +343,47 @@ export function fitList(rec: Recognition, list: LegendEntry[], local?: Reading |
   }
   assign = refineByLabels(rec, centres, assign)
   const coverage = nearest(rec, centres).coverage
-  const named = new Set(local?.groups.map((g) => g.code))
-  return { groups: groupsFrom(rec, codes, centres, assign), assign, coverage, unsureName: codes.map((c) => !named.has(c)), swatches: local?.swatches ?? [] }
+  const { assign: byPrint, doubt, classes } = classesNamed(rec, codes, want, centres, assign)
+  assign = byPrint
+  centres = codes.map((_, k) => meanFill(rec, assign, k) ?? centres[k])
+  // the names came from the list: none is a guess
+  return { groups: groupsFrom(rec, codes, centres, assign), assign, coverage, unsureName: codes.map(() => false), swatches: local?.swatches ?? [], doubt, classes }
+}
+
+/**
+ * The cells in classes of one colour and one print (printClasses.ts), each class named as a whole:
+ * whole codes trade places where the printed counts say so, and cells of a code take its name
+ * together. Cells worth a second look: those of a class another code would fit nearly as well, and
+ * those whose colour is far from every code's with no print to go by.
+ */
+function classesNamed(rec: Recognition, codes: string[], want: (number | undefined)[], colours: Rgb[], assign: Int16Array) {
+  const { share, fill } = rec.cells
+  const beads: number[] = []
+  const fixed = codes.map(() => 0)
+  assign.forEach((g, i) => {
+    if (g < 0) return
+    if (share[i] > 0.06) beads.push(i)
+    else fixed[g]++
+  })
+  const classes = printClasses(rec.cells, beads)
+  const given = classes.map((c) => {
+    const n = new Map<number, number>()
+    for (const i of c.cells) n.set(assign[i], (n.get(assign[i]) ?? 0) + 1)
+    return [...n].sort((a, b) => b[1] - a[1])[0][0]
+  })
+  const named = nameClasses(classes, codes, given, want, colours, fixed)
+  const out = Int16Array.from(assign)
+  const doubt = new Uint8Array(assign.length)
+  classes.forEach((c, j) => {
+    for (const i of c.cells) {
+      out[i] = named.code[j]
+      if (named.doubt[j]) doubt[i] = 1
+    }
+  })
+  assign.forEach((g, i) => {
+    if (g >= 0 && share[i] <= 0.06 && dist(fill[i * 3], fill[i * 3 + 1], fill[i * 3 + 2], colours[g]) >= NEAR) doubt[i] = 1
+  })
+  return { assign: out, doubt, classes: classes.map((c) => c.cells) }
 }
 
 /**
@@ -398,7 +442,8 @@ function meanFill(rec: Recognition, assign: Int16Array, k: number): Rgb | null {
 }
 
 /** The recognition with its groups replaced by a legend reading. A cell is worth a second look
- *  when its colour is far from its code's, or its code's name is a guess. */
+ *  where the reading says so; else when its colour is far from its code's, or its code's name is
+ *  a guess. Doubtful cells come first when ordered by confidence. */
 export function applyReading(rec: Recognition, reading: Reading): Recognition {
   const { fill } = rec.cells
   const n = reading.assign.length
@@ -408,9 +453,12 @@ export function applyReading(rec: Recognition, reading: Reading): Recognition {
     if (g < 0) return
     const d = dist(fill[i * 3], fill[i * 3 + 1], fill[i * 3 + 2], reading.groups[g].colour)
     confidence[i] = Math.max(0, 1 - d / (2 * NEAR))
-    if (d >= NEAR || reading.unsureName[g]) unsure[i] = 1
+    if (reading.doubt) {
+      unsure[i] = reading.doubt[i]
+      confidence[i] = unsure[i] ? confidence[i] / 2 : 0.5 + confidence[i] / 2
+    } else if (d >= NEAR || reading.unsureName[g]) unsure[i] = 1
   })
-  return { ...rec, groups: reading.groups, assign: reading.assign, confidence, unsure }
+  return { ...rec, groups: reading.groups, assign: reading.assign, confidence, unsure, classes: reading.classes }
 }
 
 /** Whether a local reading should be checked by a vision model (when one is set up). */
