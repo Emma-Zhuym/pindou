@@ -222,16 +222,14 @@ input:focus-visible {
 }
 .flowprogress {
   max-width: 960px;
-  margin: 8px auto 16px;
+  margin: 4px auto 8px;
   padding: 0 20px;
-  list-style: none;
-  display: grid;
-  gap: 5px;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--sub);
 }
 .flow .page {
-  padding-bottom: calc(40px + env(safe-area-inset-bottom));
+  /* room for the step's confirm button, so the last card can be scrolled clear of it */
+  padding-bottom: calc(140px + env(safe-area-inset-bottom));
 }
 .flow .legendpanel {
   top: calc(64px + env(safe-area-inset-top));

@@ -13,9 +13,9 @@ import { confirmedEntries, locateBoard, locateLegend, type BoardDraft } from './
 import { boardThumb, codeOrder, copyText, css, drawBoard, GREY, ICONS, newId } from '../shared'
 import { type Chart, countCells, ENGINE_VERSION, putChart, type Status, STATUS_LABEL } from '../store'
 
-type Step = 'import' | 'codes' | 'wall' | 'list'
+type Step = 'import' | 'grid' | 'codes' | 'wall' | 'list'
 const STEPS: [Step, string][] = [
-  ['import', '① 网格'],
+  ['grid', '① 网格'],
   ['codes', '② 色号'],
   ['wall', '③ 格子'],
   ['list', '④ 对比'],
@@ -159,6 +159,7 @@ export function Flow({ chart, onClose, onSaved, existingTags = [] }: { chart?: C
       setLegendState(saved?.legend ?? {})
       setLegendRectState(saved?.legendRect ?? locateLegend(raster, located))
       setDirty(!saved)
+      if (!saved) setStep('grid')
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -212,7 +213,7 @@ export function Flow({ chart, onClose, onSaved, existingTags = [] }: { chart?: C
       const next = list.map((e) => e.code)
       setNames(next)
       setLegend(Object.fromEntries(list.filter((e) => e.count !== undefined).map((e) => [e.code, e.count!])))
-      setReadNote(`读出 ${list.length} 个色号，请逐项核对色号和颗数。尚未识别格子。`)
+      setReadNote('')
       return next
     } catch (e) {
       setError(`图例读取失败：${e instanceof Error ? e.message : String(e)}。可以重读或手动填写。`)
@@ -291,13 +292,13 @@ export function Flow({ chart, onClose, onSaved, existingTags = [] }: { chart?: C
     const size = aiLegend?.size
     const fits = (b?: { cols: number; rows: number }) => !!b && b.cols === size?.cols && b.rows === size?.rows
     if (size && !fits(draft.cells) && !fits(draft.untrimmed)) {
-      out.import = `图上印着 ${size.cols}×${size.rows}，现在框的是 ${draft.cells.cols}×${draft.cells.rows}，请调整图纸范围`
+      out.grid = `图上印着 ${size.cols}×${size.rows}，现在框的是 ${draft.cells.cols}×${draft.cells.rows}，请调整图纸范围`
     }
     if (!legendConfirmed || !rec) return out
     const found = [...counts.values()].reduce((a, b) => a + b, 0)
     const printedTotal = aiLegend?.total
-    if (printedTotal && found !== printedTotal && !out.import) {
-      out.import = `图上印着共 ${printedTotal} 颗，现在数出 ${found} 颗，可能范围或空格判断有误`
+    if (printedTotal && found !== printedTotal && !out.grid) {
+      out.grid = `图上印着共 ${printedTotal} 颗，现在数出 ${found} 颗，可能范围或空格判断有误`
     }
     const printed = Object.entries(legend)
     if (printed.length) {
@@ -352,7 +353,19 @@ export function Flow({ chart, onClose, onSaved, existingTags = [] }: { chart?: C
   }
   const ready = !!(img && draft)
   const cellsReady = !!(rec && legendConfirmed)
-  const steps = chart ? STEPS.filter(([t]) => t !== 'import') : STEPS
+  // what this step has to go on, in one line
+  const legendCalls = aiCalls.filter((c) => c.phase === 'legend').length
+  const legendBeads = Object.values(legend).reduce((a, b) => a + b, 0)
+  const cellCalls = aiCalls.filter((c) => c.phase !== 'legend')
+  const progress =
+    step === 'grid' && draft
+      ? `网格：已读到 ${draft.cells.cols} × ${draft.cells.rows} 格`
+      : step === 'codes' && aiLegend
+        ? `AI 读图例 ${legendCalls} 次：${aiLegend.entries.length} 个色号${legendBeads ? `，共 ${legendBeads} 颗` : ''}`
+        : step === 'wall' && cellsReady
+          ? `格子：已识别 ${assign.filter((g) => g >= 0).length} 颗${cellCalls.length ? formatAiCalls(cellCalls).replace('；本次', '，') : ''}`
+          : ''
+  const steps = chart ? STEPS.filter(([t]) => t !== 'grid') : STEPS
 
   return (
     <div className="flow">
@@ -362,7 +375,7 @@ export function Flow({ chart, onClose, onSaved, existingTags = [] }: { chart?: C
         </button>
         <nav className="segmented glass steps" role="tablist" aria-label="步骤">
           {steps.map(([t, label]) => (
-            <button key={t} role="tab" aria-selected={step === t} disabled={!!busy || (t !== 'import' && boardPending) || (t === 'codes' ? !ready || !legendLoaded : t === 'wall' ? !cellsReady : t === 'list' ? !cellsReady || !cellsReviewed : false)} onClick={() => setStep(t)} className={review[t] ? 'needs' : undefined} title={review[t]}>
+            <button key={t} role="tab" aria-selected={step === t} disabled={!!busy || (t !== 'grid' && boardPending) || (t === 'grid' ? !ready : t === 'codes' ? !ready || !legendLoaded : t === 'wall' ? !cellsReady : t === 'list' ? !cellsReady || !cellsReviewed : false)} onClick={() => setStep(t)} className={review[t] ? 'needs' : undefined} title={review[t]}>
               {label}
             </button>
           ))}
@@ -375,20 +388,12 @@ export function Flow({ chart, onClose, onSaved, existingTags = [] }: { chart?: C
         <h1>{chart?.title ?? '识别新图纸'}</h1>
         {busy && <span className="sub" role="status">{busy}</span>}
       </div>
-      <ol className="flowprogress" aria-label="识别进度">
-        <li>网格：{draft ? `已读到 ${draft.cells.cols} × ${draft.cells.rows} 格` : '等待导入图片'}</li>
-        <li>色号：{legendLoaded ? `读到 ${names.filter(Boolean).length} 个${legendConfirmed ? '，已确认' : '，待人工核对'}` : '等待确认网格后读取'}</li>
-        <li>格子：{cellsReady ? `已识别 ${assign.filter((g) => g >= 0).length} 颗${cellsReviewed ? '，已核对' : '，待核对'}` : '等待确认色号和颗数'}</li>
-        <li>对比：{cellsReviewed ? '可以对照原图检查并保存' : '等待格子核对完成'}</li>
-        {aiCalls.length > 0 && <li className="sub">{formatAiCalls(aiCalls).slice(1)}</li>}
-      </ol>
+      {progress && <p className="flowprogress">{progress}</p>}
       {error && step !== 'import' && <p className="error page-error">{error}</p>}
       {step !== 'import' && review[step] && <p className="review page-error">{review[step]}</p>}
       <main>
         {step === 'import' && (
           <ImportPage
-            img={img}
-            rec={draft}
             busy={busy}
             error={error}
             onOpen={(f) => {
@@ -401,11 +406,19 @@ export function Flow({ chart, onClose, onSaved, existingTags = [] }: { chart?: C
               setSuggested(title)
               open(f)
             }}
+          />
+        )}
+        {step === 'grid' && img && draft && (
+          <GridPage
+            img={img}
+            rec={draft}
+            busy={busy}
             onBoard={changeBoard}
             pendingBoard={boardPending}
             onPendingBoard={setBoardPending}
             review={review}
             printedSize={aiLegend?.size}
+            onOther={() => setStep('import')}
             onNext={readLegend}
           />
         )}
@@ -698,23 +711,8 @@ function BoardComparison({ img, rec, names, assign }: { img: HTMLImageElement; r
 
 // ------------------------------------------------------------------ import
 
-function ImportPage(props: {
-  img: HTMLImageElement | null
-  rec: BoardDraft | null
-  busy: string
-  error: string
-  review: Partial<Record<Step, string>>
-  printedSize?: { cols: number; rows: number }
-  onOpen: (src: Blob | string) => void
-  onLink: (image: Blob, title: string, sourceUrl?: string) => void
-  onBoard: (extent: Extent, grid: Grid) => void
-  pendingBoard: boolean
-  onPendingBoard: (pending: boolean) => void
-  onNext: () => void
-}) {
-  const { img, rec, busy, error, review, printedSize, onOpen, onLink, onBoard, pendingBoard, onPendingBoard, onNext } = props
-  const checks = STEPS.filter(([t]) => review[t])
-
+function ImportPage(props: { busy: string; error: string; onOpen: (src: Blob | string) => void; onLink: (image: Blob, title: string, sourceUrl?: string) => void }) {
+  const { busy, error, onOpen, onLink } = props
   useEffect(() => {
     const paste = (e: ClipboardEvent) => {
       const file = [...(e.clipboardData?.files ?? [])].find((f) => f.type.startsWith('image/'))
@@ -752,41 +750,51 @@ function ImportPage(props: {
         </div>
       )}
       {error && <p className="error">{error}</p>}
-      {rec && img && (
-        <>
-          <section className="card stats">
-            <div>
-              <b>
-                {rec.cells.cols} × {rec.cells.rows}
-              </b>
-              <span>已定位的格子，下一步读取图例</span>
-            </div>
-          </section>
-          {checks.length > 0 && (
-            <section className="card review">
-              <b>建议人工核对</b>
-              {checks.map(([t, label]) => (
-                <p key={t}>
-                  <span className="sub">{label}：</span>
-                  {review[t]}
-                </p>
-              ))}
-            </section>
-          )}
-          <BoardCheck key={`${rec.cells.r0},${rec.cells.c0},${rec.cells.rows},${rec.cells.cols}`} img={img} rec={rec} busy={!!busy} printedSize={printedSize} onApply={onBoard} onPendingChange={onPendingBoard} />
-          {pendingBoard && <p className="hint">先应用调整后的范围，再读取图例。</p>}
-          <div className="nextbar">
-            <button className="primary" disabled={!!busy || pendingBoard} onClick={onNext}>
-              网格已确认，下一步读色号和颗数
-            </button>
-          </div>
-        </>
-      )}
     </div>
   )
 }
 
-/** The board the recogniser settled on, drawn over the image, with each edge movable by whole cells. */
+function GridPage(props: {
+  img: HTMLImageElement
+  rec: BoardDraft
+  busy: string
+  review: Partial<Record<Step, string>>
+  printedSize?: { cols: number; rows: number }
+  onBoard: (extent: Extent, grid: Grid) => void
+  pendingBoard: boolean
+  onPendingBoard: (pending: boolean) => void
+  onOther: () => void
+  onNext: () => void
+}) {
+  const { img, rec, busy, review, printedSize, onBoard, pendingBoard, onPendingBoard, onOther, onNext } = props
+  const checks = STEPS.filter(([t]) => review[t])
+  return (
+    <div className="page">
+      {checks.length > 0 && (
+        <section className="card review">
+          <b>建议人工核对</b>
+          {checks.map(([t, label]) => (
+            <p key={t}>
+              <span className="sub">{label}：</span>
+              {review[t]}
+            </p>
+          ))}
+        </section>
+      )}
+      <BoardCheck key={`${rec.cells.r0},${rec.cells.c0},${rec.cells.rows},${rec.cells.cols}`} img={img} rec={rec} busy={!!busy} printedSize={printedSize} onApply={onBoard} onPendingChange={onPendingBoard} />
+      {pendingBoard && <p className="hint">先应用调整后的范围，再读取图例。</p>}
+      <button className="link" disabled={!!busy} onClick={onOther}>
+        换一张图片
+      </button>
+      <div className="nextbar">
+        <button className="primary" disabled={!!busy || pendingBoard} onClick={onNext}>
+          网格已确认，下一步读色号和颗数
+        </button>
+      </div>
+    </div>
+  )
+}
+
 /** a corner of the board drawn this many cells a side, one cell beyond the board included */
 const ZOOM_CELLS = 6
 /** an edge of the board can be picked up this far from the finger (CSS pixels) */
@@ -1252,7 +1260,9 @@ function CodesPage(props: {
           </button>
         </div>
         <span className="sub">
-          {live.length} 个色号{rec ? `，识别 ${found} 颗` : '，等待确认后识别格子'}{printed.length > 0 && `；图例已填 ${printed.length} 色共 ${printedTotal} 颗${rec ? `，${mismatched ? `${mismatched} 个对不上` : '全部对上'}` : ''}`}
+          {rec
+            ? `${live.length} 个色号，识别 ${found} 颗${printed.length > 0 ? `；图例已填 ${printed.length} 色共 ${printedTotal} 颗，${mismatched ? `${mismatched} 个对不上` : '全部对上'}` : ''}`
+            : `已填 ${live.length} 个色号${printedTotal ? `，共 ${printedTotal} 颗` : ''}`}
         </span>
         {rec && <div className="row">
           <button className="small glass" onClick={() => setBulk({ mode: 'recolour', a: live[0] ?? '', b: '' })}>
