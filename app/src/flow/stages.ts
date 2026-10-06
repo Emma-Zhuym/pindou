@@ -1,19 +1,25 @@
-import { clusterByFill, readCells, stripBorder } from '../engine/cells'
+import { clusterByFill, readCells, stripBorder, trimBlank } from '../engine/cells'
 import { CATALOGUE } from '../engine/glyphs'
 import { findBoard, findGrid, type Extent, type Grid, type Raster } from '../engine/grid'
 import type { LegendEntry } from '../engine/legendRead'
 import type { Recognition } from '../engine/recognize'
 import { findLegend, outsideBoard } from '../engine/legendArea'
 
-export type BoardDraft = Pick<Recognition, 'grid' | 'extent' | 'cells'>
+export type BoardDraft = Pick<Recognition, 'grid' | 'extent' | 'cells'> & {
+  /** the board's size before the blank paper round it was trimmed, when some was */
+  untrimmed?: { cols: number; rows: number }
+}
 
-/** Locate and sample the board without assigning any cell a colour code. */
+/** Locate and sample the board without assigning any cell a colour code. Found by itself, the
+ *  board loses its numbered border and the blank paper round it; one the person set is kept. */
 export function locateBoard(img: Raster, board?: { grid: Grid; extent: Extent }): BoardDraft {
   const grid = board?.grid ?? findGrid(img)
   const found = board?.extent ?? findBoard(img, grid)
   const sampled = readCells(img, grid, found)
-  const cells = board ? sampled : stripBorder(sampled)
-  return { grid, cells, extent: { r0: cells.r0, c0: cells.c0, rows: cells.rows, cols: cells.cols } }
+  const bordered = board ? sampled : stripBorder(sampled)
+  const cells = board ? sampled : trimBlank(bordered)
+  const untrimmed = cells !== bordered ? { cols: bordered.cols, rows: bordered.rows } : undefined
+  return { grid, cells, extent: { r0: cells.r0, c0: cells.c0, rows: cells.rows, cols: cells.cols }, untrimmed }
 }
 
 /** Locate the legend using unnamed fill colours, without reading any board labels. */

@@ -237,9 +237,9 @@ export function Flow({ chart, onClose, onSaved, existingTags = [] }: { chart?: C
     finally { setBusy('') }
   }
 
-  function changeBoard(extent: Extent) {
+  function changeBoard(extent: Extent, grid: Grid) {
     if (!img || !draft) return
-    const next = locateBoard(toRaster(img), { grid: draft.grid, extent })
+    const next = locateBoard(toRaster(img), { grid, extent })
     setDraft(next)
     setBoardPending(false)
     setRec(null)
@@ -289,7 +289,8 @@ export function Flow({ chart, onClose, onSaved, existingTags = [] }: { chart?: C
     const out: Partial<Record<Step, string>> = {}
     if (!draft) return out
     const size = aiLegend?.size
-    if (size && (size.cols !== draft.cells.cols || size.rows !== draft.cells.rows)) {
+    const fits = (b?: { cols: number; rows: number }) => !!b && b.cols === size?.cols && b.rows === size?.rows
+    if (size && !fits(draft.cells) && !fits(draft.untrimmed)) {
       out.import = `图上印着 ${size.cols}×${size.rows}，现在框的是 ${draft.cells.cols}×${draft.cells.rows}，请调整图纸范围`
     }
     if (!legendConfirmed || !rec) return out
@@ -706,7 +707,7 @@ function ImportPage(props: {
   printedSize?: { cols: number; rows: number }
   onOpen: (src: Blob | string) => void
   onLink: (image: Blob, title: string, sourceUrl?: string) => void
-  onBoard: (extent: Extent) => void
+  onBoard: (extent: Extent, grid: Grid) => void
   pendingBoard: boolean
   onPendingBoard: (pending: boolean) => void
   onNext: () => void
@@ -784,15 +785,28 @@ function ImportPage(props: {
 }
 
 /** The board the recogniser settled on, drawn over the image, with each edge movable by whole cells. */
-function BoardCheck({ img, rec, busy, printedSize, onApply, onPendingChange }: { img: HTMLImageElement; rec: BoardDraft & { assign?: Int16Array }; busy: boolean; printedSize?: { cols: number; rows: number }; onApply: (e: Extent) => void; onPendingChange?: (changed: boolean) => void }) {
+/** a corner of the board drawn this many cells a side, one cell beyond the board included */
+const ZOOM_CELLS = 6
+/** an edge of the board can be picked up this far from the finger (CSS pixels) */
+const EDGE_REACH = 28
+
+type Side = 'top' | 'bottom' | 'left' | 'right'
+
+/**
+ * The board the recogniser settled on, drawn over the image. Each edge is dragged on the image,
+ * whole cells at a time. The grid lines themselves can be lined up in a sheet, against two
+ * magnified corners (big images sometimes put them part of a cell off along one axis).
+ */
+function BoardCheck({ img, rec, busy, printedSize, onApply, onPendingChange }: { img: HTMLImageElement; rec: BoardDraft & { assign?: Int16Array }; busy: boolean; printedSize?: { cols: number; rows: number }; onApply: (e: Extent, g: Grid) => void; onPendingChange?: (changed: boolean) => void }) {
   const found = { r0: rec.cells.r0, c0: rec.cells.c0, rows: rec.cells.rows, cols: rec.cells.cols }
   const [ext, setExt] = useState(found)
+  const [grid, setGrid] = useState<Grid>(rec.grid)
+  const [aligning, setAligning] = useState(false)
   const ref = useRef<HTMLCanvasElement>(null)
-  const { grid } = rec
+  const scale = Math.min(1, 900 / img.naturalWidth)
   useEffect(() => {
     const c = ref.current
     if (!c) return
-    const scale = Math.min(1, 900 / img.naturalWidth)
     c.width = Math.round(img.naturalWidth * scale)
     c.height = Math.round(img.naturalHeight * scale)
     const ctx = c.getContext('2d')!
@@ -800,92 +814,218 @@ function BoardCheck({ img, rec, busy, printedSize, onApply, onPendingChange }: {
     ctx.drawImage(img, 0, 0, c.width, c.height)
     const x = (grid.offX + ext.c0 * grid.perX) * scale
     const y = (grid.offY + ext.r0 * grid.perY) * scale
+    const w = ext.cols * grid.perX * scale
+    const h = ext.rows * grid.perY * scale
     ctx.fillStyle = 'rgba(0, 0, 0, 0.35)'
     ctx.fillRect(0, 0, c.width, y)
-    ctx.fillRect(0, y + ext.rows * grid.perY * scale, c.width, c.height)
-    ctx.fillRect(0, y, x, ext.rows * grid.perY * scale)
-    ctx.fillRect(x + ext.cols * grid.perX * scale, y, c.width, ext.rows * grid.perY * scale)
+    ctx.fillRect(0, y + h, c.width, c.height)
+    ctx.fillRect(0, y, x, h)
+    ctx.fillRect(x + w, y, c.width, h)
     ctx.strokeStyle = '#007aff'
     ctx.lineWidth = 3
-    ctx.strokeRect(x, y, ext.cols * grid.perX * scale, ext.rows * grid.perY * scale)
-  }, [img, grid, ext])
-  const changed = ext.r0 !== found.r0 || ext.c0 !== found.c0 || ext.rows !== found.rows || ext.cols !== found.cols
+    ctx.strokeRect(x, y, w, h)
+    // a handle in the middle of each edge: the edges are dragged
+    ctx.fillStyle = '#007aff'
+    const r = Math.max(5, c.width / 90)
+    for (const [hx, hy] of [[x + w / 2, y], [x + w / 2, y + h], [x, y + h / 2], [x + w, y + h / 2]]) {
+      ctx.beginPath()
+      ctx.arc(hx, hy, r, 0, Math.PI * 2)
+      ctx.fill()
+    }
+  }, [img, grid, ext, scale])
+  const gridChanged = grid.offX !== rec.grid.offX || grid.offY !== rec.grid.offY || grid.perX !== rec.grid.perX || grid.perY !== rec.grid.perY
+  const changed = gridChanged || ext.r0 !== found.r0 || ext.c0 !== found.c0 || ext.rows !== found.rows || ext.cols !== found.cols
   useEffect(() => { onPendingChange?.(changed) }, [changed, onPendingChange])
-  // the smallest board that still holds every bead: authors often leave rows of empty cells around
-  const trimmed = useMemo(() => {
-    const { cols, rows } = rec.cells
-    let top = rows
-    let bottom = -1
-    let left = cols
-    let right = -1
-    rec.assign?.forEach((g, i) => {
-      if (g < 0) return
-      const x = i % cols
-      const y = (i - x) / cols
-      top = Math.min(top, y)
-      bottom = Math.max(bottom, y)
-      left = Math.min(left, x)
-      right = Math.max(right, x)
-    })
-    if (bottom < 0 || (top === 0 && left === 0 && bottom === rows - 1 && right === cols - 1)) return null
-    return { r0: rec.cells.r0 + top, c0: rec.cells.c0 + left, rows: bottom - top + 1, cols: right - left + 1 }
-  }, [rec])
-  // moving an edge by one cell: top/left move the origin, bottom/right only the size
-  const edge = (side: 'top' | 'bottom' | 'left' | 'right', d: number) => {
-    const e = { ...ext }
-    if (side === 'top') {
-      e.r0 -= d
-      e.rows += d
-    } else if (side === 'bottom') e.rows += d
-    else if (side === 'left') {
-      e.c0 -= d
-      e.cols += d
-    } else e.cols += d
-    if (e.rows >= 2 && e.cols >= 2) setExt(e)
+
+  // dragging an edge: the edge nearest the finger, moved to the nearest line between cells
+  const held = useRef<Side | null>(null)
+  const toImage = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const box = e.currentTarget.getBoundingClientRect()
+    const k = img.naturalWidth / box.width
+    return { x: (e.clientX - box.left) * k, y: (e.clientY - box.top) * k, k }
   }
-  const stepper = (side: 'top' | 'bottom' | 'left' | 'right', label: string) => (
-    <div className="edgestep">
-      <span className="sub">{label}</span>
-      <button className="link" aria-label={`${label}收一格`} onClick={() => edge(side, -1)}>
-        −
-      </button>
-      <button className="link" aria-label={`${label}扩一格`} onClick={() => edge(side, 1)}>
-        +
-      </button>
-    </div>
-  )
+  const pick = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const { x, y, k } = toImage(e)
+    const left = grid.offX + ext.c0 * grid.perX
+    const top = grid.offY + ext.r0 * grid.perY
+    const right = left + ext.cols * grid.perX
+    const bottom = top + ext.rows * grid.perY
+    const reach = EDGE_REACH * k
+    const within = (v: number, a: number, b: number) => v > a - reach && v < b + reach
+    const near: [Side, number][] = [
+      ['top', within(x, left, right) ? Math.abs(y - top) : Infinity],
+      ['bottom', within(x, left, right) ? Math.abs(y - bottom) : Infinity],
+      ['left', within(y, top, bottom) ? Math.abs(x - left) : Infinity],
+      ['right', within(y, top, bottom) ? Math.abs(x - right) : Infinity],
+    ]
+    const [side, d] = near.sort((a, b) => a[1] - b[1])[0]
+    return d <= reach ? side : null
+  }
+  const drag = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const side = held.current
+    if (!side) return
+    const { x, y } = toImage(e)
+    const col = Math.round((x - grid.offX) / grid.perX)
+    const row = Math.round((y - grid.offY) / grid.perY)
+    setExt((o) => {
+      const end = { r: o.r0 + o.rows, c: o.c0 + o.cols }
+      if (side === 'top') {
+        const r0 = Math.min(row, end.r - 2)
+        return { ...o, r0, rows: end.r - r0 }
+      }
+      if (side === 'bottom') return { ...o, rows: Math.max(2, row - o.r0) }
+      if (side === 'left') {
+        const c0 = Math.min(col, end.c - 2)
+        return { ...o, c0, cols: end.c - c0 }
+      }
+      return { ...o, cols: Math.max(2, col - o.c0) }
+    })
+  }
+
+  const bad = printedSize && (printedSize.cols !== ext.cols || printedSize.rows !== ext.rows) && !(ext.cols === found.cols && ext.rows === found.rows && rec.untrimmed?.cols === printedSize.cols && rec.untrimmed?.rows === printedSize.rows)
   return (
     <section className="card boardcheck">
       <div className="row">
         <b>图纸范围</b>
-        <span className={printedSize && (printedSize.cols !== ext.cols || printedSize.rows !== ext.rows) ? 'sub bad' : 'sub'}>
+        <span className={bad ? 'sub bad' : 'sub'}>
           {ext.cols} 列 × {ext.rows} 行{printedSize && `（图上印着 ${printedSize.cols} × ${printedSize.rows}）`}
         </span>
       </div>
-      <canvas ref={ref} className="boardcanvas" />
-      <p className="hint">蓝框是程序找到的图纸范围。和图纸上印的行列号对一下，不对就逐格调整边缘。</p>
-      {trimmed && (
-        <button className="link" onClick={() => setExt(trimmed)}>
-          裁掉四周空白（{trimmed.cols} 列 × {trimmed.rows} 行）
-        </button>
+      <canvas
+        ref={ref}
+        className="boardcanvas"
+        onPointerDown={(e) => {
+          held.current = pick(e)
+          if (held.current) e.currentTarget.setPointerCapture(e.pointerId)
+        }}
+        onPointerMove={drag}
+        onPointerUp={() => (held.current = null)}
+        onPointerCancel={() => (held.current = null)}
+      />
+      <p className="hint">
+        蓝框是图纸范围{rec.untrimmed && `，已去掉四周空白（原来 ${rec.untrimmed.cols} × ${rec.untrimmed.rows}）`}。和图上印的行列号对一下，不对就按住蓝框的边拖动，一次挪一格。
+      </p>
+      <button className="link" onClick={() => setAligning(true)}>
+        格线没压在图纸的线上？对齐格线
+      </button>
+      {aligning && (
+        <AlignSheet
+          img={img}
+          grid={grid}
+          ext={ext}
+          onCancel={() => setAligning(false)}
+          onDone={(g) => {
+            setGrid(g)
+            setAligning(false)
+          }}
+        />
       )}
-      <div className="edgesteps">
-        {stepper('top', '上边')}
-        {stepper('bottom', '下边')}
-        {stepper('left', '左边')}
-        {stepper('right', '右边')}
-      </div>
       {changed && (
         <div className="row end">
-          <button className="link" onClick={() => setExt(found)}>
+          <button
+            className="link"
+            onClick={() => {
+              setExt(found)
+              setGrid(rec.grid)
+            }}
+          >
             还原
           </button>
-          <button className="primary small" disabled={busy} onClick={() => onApply(ext)}>
-            应用这个图纸范围
+          <button className="primary small" disabled={busy} onClick={() => onApply(ext, grid)}>
+            应用这个范围
           </button>
         </div>
       )}
     </section>
+  )
+}
+
+/**
+ * Lining up the grid lines: two magnified corners of the board with the lines drawn over them.
+ * Dragging either moves the picture under the lines, as a finger moves a photo; the cell size is
+ * left alone (the recogniser gets it right; what goes wrong is where the lines start).
+ */
+function AlignSheet({ img, grid: start, ext, onCancel, onDone }: { img: HTMLImageElement; grid: Grid; ext: Extent; onCancel: () => void; onDone: (g: Grid) => void }) {
+  const [grid, setGrid] = useState(start)
+  const topLeft = useRef<HTMLCanvasElement>(null)
+  const bottomRight = useRef<HTMLCanvasElement>(null)
+  useEffect(() => {
+    const corner = (c: HTMLCanvasElement | null, r0: number, c0: number) => {
+      if (!c) return
+      const px = 40 * (window.devicePixelRatio || 1)
+      const n = ZOOM_CELLS + 1
+      c.width = c.height = n * px
+      const ctx = c.getContext('2d')!
+      ctx.fillStyle = '#fff'
+      ctx.fillRect(0, 0, c.width, c.height)
+      ctx.imageSmoothingQuality = 'high'
+      ctx.drawImage(img, grid.offX + c0 * grid.perX, grid.offY + r0 * grid.perY, n * grid.perX, n * grid.perY, 0, 0, c.width, c.height)
+      for (let k = 0; k <= n; k++) {
+        const edgeX = c0 + k === ext.c0 || c0 + k === ext.c0 + ext.cols
+        const edgeY = r0 + k === ext.r0 || r0 + k === ext.r0 + ext.rows
+        ctx.lineWidth = edgeX ? 3 : 1.5
+        ctx.strokeStyle = edgeX ? '#007aff' : 'rgba(255, 45, 140, 0.9)'
+        ctx.beginPath()
+        ctx.moveTo(k * px, 0)
+        ctx.lineTo(k * px, c.height)
+        ctx.stroke()
+        ctx.lineWidth = edgeY ? 3 : 1.5
+        ctx.strokeStyle = edgeY ? '#007aff' : 'rgba(255, 45, 140, 0.9)'
+        ctx.beginPath()
+        ctx.moveTo(0, k * px)
+        ctx.lineTo(c.width, k * px)
+        ctx.stroke()
+      }
+    }
+    corner(topLeft.current, ext.r0 - 1, ext.c0 - 1)
+    corner(bottomRight.current, ext.r0 + ext.rows - ZOOM_CELLS, ext.c0 + ext.cols - ZOOM_CELLS)
+  }, [img, grid, ext])
+  const last = useRef<{ x: number; y: number } | null>(null)
+  const drag = {
+    onPointerDown: (e: React.PointerEvent<HTMLCanvasElement>) => {
+      e.currentTarget.setPointerCapture(e.pointerId)
+      last.current = { x: e.clientX, y: e.clientY }
+    },
+    onPointerMove: (e: React.PointerEvent<HTMLCanvasElement>) => {
+      if (!last.current) return
+      // finger travel in cells of the magnified view
+      const cells = (ZOOM_CELLS + 1) / e.currentTarget.getBoundingClientRect().width
+      const dx = (e.clientX - last.current.x) * cells
+      const dy = (e.clientY - last.current.y) * cells
+      last.current = { x: e.clientX, y: e.clientY }
+      setGrid((g) => ({ ...g, offX: g.offX - dx * g.perX, offY: g.offY - dy * g.perY }))
+    },
+    onPointerUp: () => (last.current = null),
+    onPointerCancel: () => (last.current = null),
+  }
+  return (
+    <div className="sheet" onClick={onCancel}>
+      <div className="sheetbody form" onClick={(e) => e.stopPropagation()}>
+        <h2>对齐格线</h2>
+        <p className="hint">粉线应该压在图纸的格线上（蓝线是图纸边缘）。用手指拖动放大图里的图片，直到两个角都对上。</p>
+        <div className="gridzoom">
+          <figure>
+            <canvas ref={topLeft} {...drag} />
+            <figcaption>左上角</figcaption>
+          </figure>
+          <figure>
+            <canvas ref={bottomRight} {...drag} />
+            <figcaption>右下角</figcaption>
+          </figure>
+        </div>
+        <div className="row end">
+          <button type="button" className="link" onClick={() => setGrid(start)}>
+            还原
+          </button>
+          <button type="button" className="link" onClick={onCancel}>
+            取消
+          </button>
+          <button type="button" className="primary small" onClick={() => onDone(grid)}>
+            好了
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 

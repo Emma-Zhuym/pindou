@@ -108,7 +108,7 @@ export function findGrid(img: Raster, lo = 7, hi = 45): Grid {
     const valid = maxX > 0 && maxY > 0
       ? candidates.filter(c => c.x >= maxX * 0.75 && c.y >= maxY * 0.75)
       : []
-    return (valid.at(-1) ?? candidates[0]).grid
+    return settle(img, (valid.at(-1) ?? candidates[0]).grid, px, py)
   }
   const px = profile(img, 0)
   const py = profile(img, 1)
@@ -133,7 +133,87 @@ export function findGrid(img: Raster, lo = 7, hi = 45): Grid {
   const top = comb.reduce((a, b) => Math.max(a, b), 0)
   let i = comb.findIndex((v) => v >= 0.62 * top)
   while (i + 1 < pers.length && comb[i + 1] >= comb[i]) i++
-  return refine(px, py, pers[i])
+  return settle(img, refine(px, py, pers[i]), px, py)
+}
+
+/** a step across a row or column of pixels this big (summed over channels) counts as an edge:
+ *  low, since the thin lines on some charts barely differ from the cells (about 20) */
+const STEP = 12
+/** another phase must cover this much more of the image to be taken instead */
+const PHASE_WINS = 1.25
+/** ...and twice the cell size this much more, on both axes */
+const DOUBLE_WINS = 1.2
+
+/** Share of each row (axis 1) or column (axis 0) of pixels where the image steps across it. A
+ *  grid line crosses the whole chart; the print in a row of cells only covers part of it. */
+function coverage(img: Raster, axis: 0 | 1): Float64Array {
+  const { width: W, height: H, data } = img
+  const n = axis === 0 ? W - 1 : H - 1
+  const out = new Float64Array(n)
+  const step = axis === 0 ? 4 : W * 4
+  const along = axis === 0 ? H : W
+  for (let k = 0; k < n; k++) {
+    let c = 0
+    for (let a = 0; a < along; a++) {
+      const i = axis === 0 ? (a * W + k) * 4 : (k * W + a) * 4
+      if (Math.abs(data[i + step] - data[i]) + Math.abs(data[i + step + 1] - data[i + 1]) + Math.abs(data[i + step + 2] - data[i + 2]) > STEP) c++
+    }
+    out[k] = c / along
+  }
+  return out
+}
+
+/**
+ * The cell size checked against twice it, and the phase of the lines against every other phase. Every row of cells prints its codes
+ * at one height, so the tops and bottoms of the print make a second set of "lines" at the cell
+ * pitch; on charts with faint grey lines and bold print they can outweigh the real ones in the
+ * summed profile, and the grid lands in the print, up to half a cell off (seen on rows, not
+ * columns: codes start and end at different x). Real lines cross the whole chart, print only part
+ * of it, so the phase whose lines cross the most of the image wins when it clearly does.
+ */
+function settle(img: Raster, grid: Grid, px: Float64Array, py: Float64Array): Grid {
+  const cx = coverage(img, 0)
+  const cy = coverage(img, 1)
+  // White print in the middle of dark cells can pass for a line of its own, and half the cell
+  // size then finds a line at every step. At the true size every line crosses the chart; at half
+  // of it every other one is print.
+  const doubled = refine(px, py, grid.perX + grid.perY)
+  if (crossing(cx, doubled.perX).best > DOUBLE_WINS * crossing(cx, grid.perX).best && crossing(cy, doubled.perY).best > DOUBLE_WINS * crossing(cy, grid.perY).best) grid = doubled
+  return { ...grid, offX: phase(cx, grid.perX, grid.offX), offY: phase(cy, grid.perY, grid.offY) }
+}
+
+/** How much of the image lines at this pitch cross, per phase (a step of half a pixel), and at best. */
+function crossing(c: Float64Array, per: number): { score: number[]; best: number; at: (o: number) => number } {
+  const reach = Math.max(2, Math.round(per * 0.06))
+  const at = (o: number) => {
+    let s = 0
+    let n = 0
+    for (let k = 0; o + k * per < c.length; k++) {
+      const x = Math.round(o + k * per)
+      let m = 0
+      for (let d = -reach; d <= reach; d++) if (x + d >= 0 && x + d < c.length) m = Math.max(m, c[x + d])
+      s += m
+      n++
+    }
+    return n ? s / n : 0
+  }
+  const steps = Math.ceil(per * 2)
+  const score = Array.from({ length: steps }, (_, k) => at((k * per) / steps))
+  return { score, best: Math.max(...score), at }
+}
+
+/** The phase whose lines cross the most of the image, when it clearly beats the one found. */
+function phase(c: Float64Array, per: number, off: number): number {
+  const { score, best: top, at } = crossing(c, per)
+  if (top <= PHASE_WINS * at(off)) return off
+  // the middle of the run of phases near the top (the window makes a plateau around a line)
+  const steps = score.length
+  const best = score.indexOf(top)
+  let lo = best
+  let hi = best
+  while (score[(((lo - 1) % steps) + steps) % steps] >= 0.95 * top && hi - lo < steps) lo--
+  while (score[(hi + 1) % steps] >= 0.95 * top && hi - lo < steps) hi++
+  return ((((lo + hi) / 2) * per) / steps + per) % per
 }
 
 /** Weak-end line evidence; mean alone also rewards every second/fourth grid line. */

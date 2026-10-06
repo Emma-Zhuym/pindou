@@ -165,10 +165,39 @@ export function stripBorder(cells: Cells): Cells {
   if (isBorder(rowLine(b - 1))) b--
   if (isBorder(colLine(l))) l++
   if (isBorder(colLine(rr - 1))) rr--
-  if (t === 0 && b === rows && l === 0 && rr === cols) return cells
 
+  return crop(cells, t, b, l, rr)
+}
+
+/** Every bead prints its code, so a row or column of cells with nothing printed in any of them is
+ *  paper round the chart, not part of it; those at the edges go. At least two of each stay. */
+export function trimBlank(cells: Cells): Cells {
+  const { rows, cols, share } = cells
+  const blankRow = (r: number) => {
+    for (let c = 0; c < cols; c++) if (share[r * cols + c] > 0.06) return false
+    return true
+  }
+  const blankCol = (c: number) => {
+    for (let r = 0; r < rows; r++) if (share[r * cols + c] > 0.06) return false
+    return true
+  }
+  let t = 0
+  let b = rows
+  let l = 0
+  let r = cols
+  while (b - t > 2 && blankRow(t)) t++
+  while (b - t > 2 && blankRow(b - 1)) b--
+  while (r - l > 2 && blankCol(l)) l++
+  while (r - l > 2 && blankCol(r - 1)) r--
+  return crop(cells, t, b, l, r)
+}
+
+/** Rows t..b-1 and columns l..r-1 of the cells. */
+function crop(cells: Cells, t: number, b: number, l: number, r: number): Cells {
+  if (t === 0 && b === cells.rows && l === 0 && r === cells.cols) return cells
+  const { cols, fill } = cells
   const nr = b - t
-  const nc = rr - l
+  const nc = r - l
   const out: Cells = {
     rows: nr,
     cols: nc,
@@ -178,10 +207,10 @@ export function stripBorder(cells: Cells): Cells {
     r0: cells.r0 + t,
     c0: cells.c0 + l,
   }
-  for (let r = 0; r < nr; r++) {
-    for (let c = 0; c < nc; c++) {
-      const src = (r + t) * cols + (c + l)
-      const dst = r * nc + c
+  for (let y = 0; y < nr; y++) {
+    for (let x = 0; x < nc; x++) {
+      const src = (y + t) * cols + (x + l)
+      const dst = y * nc + x
       out.fill.set(fill.subarray(src * 3, src * 3 + 3), dst * 3)
       out.ink.set(cells.ink.subarray(src * INK * INK, (src + 1) * INK * INK), dst * INK * INK)
       out.share[dst] = cells.share[src]
