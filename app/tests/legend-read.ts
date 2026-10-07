@@ -46,6 +46,7 @@ const LEGENDS: Record<string, string> = {
   hogwarts: 'C12:3941 H7:2450 C18:1314 H6:747 C29:626 H16:295 F11:252 C19:216 H5:202 A11:187 M6:128 G14:124 G5:122 G21:107 M15:68 H13:37',
   bunny: 'C13:183 E17:6 H1:368 H2:232 H7:5',
   hug: 'A9:22 A12:21 A18:6 A21:29 A23:355 A24:1 B13:39 B16:7 C6:4 C24:20 C27:6 D9:7 E1:434 E11:4 F19:2 F23:12 G11:21 G12:351 G18:325 H2:175 H3:5 H7:655 H10:516',
+  checker: 'A10:3 A23:307 B19:39 B25:20 B31:6 C15:20 C22:56 D6:3 D11:123 D16:157 D17:285 D25:4 E1:148 E15:9 E17:137 E23:8 F20:20 G15:292 G17:8 H2:9 H5:10 M1:29 M2:75 M8:22',
   pool: 'A15:8 A4:96 A6:1 B1:90 B15:113 B8:100 C13:93 C20:8 C24:999 C8:490 F4:13 G21:2 G5:9 G6:6 G8:40 G9:198 H11:319 H19:34 H2:342 H3:201 H5:468 H7:204 M3:137',
 }
 const FILES: [string, string, string][] = [
@@ -63,6 +64,7 @@ const FILES: [string, string, string][] = [
   ['bunny', 'link', 'research/out/xhs/batch3/bunny.jpg'],
   ['hug', 'link', 'research/out/xhs/batch3/hug-2.jpg'],
   ['hug', 'link-big', 'research/out/xhs/batch3/hug-3.jpg'],
+  ['checker', 'link', 'research/out/xhs/batch4/checker-5.jpg'],
 ]
 const agreement = (counts: Map<string, number>, legend: Record<string, number>) => {
   let off = 0

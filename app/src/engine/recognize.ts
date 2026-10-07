@@ -33,6 +33,8 @@ export interface Recognition {
 
 /** below this likeness to the colour's own printed code, ink on a background cell is a watermark */
 const WATERMARK_CORR = 0.4
+/** the cells on the page's colour that print like the other codes by this much more are the beads */
+const LESS_LIKE = 0.15
 
 const rgbOf = (centre: Float64Array, k: number): Rgb => ({ r: centre[k * 3], g: centre[k * 3 + 1], b: centre[k * 3 + 2] })
 const colourDist = (a: Rgb, b: Rgb) => Math.abs(a.r - b.r) + Math.abs(a.g - b.g) + Math.abs(a.b - b.b)
@@ -180,7 +182,22 @@ export function recognise(img: Raster, render: TextRenderer, onProgress?: (step:
       }
       let corr = look(inked)
       corr = look(inked.filter((_, k) => corr[k] >= 0.5))
-      const beads = inked.filter((_, k) => corr[k] >= 0.5)
+      let beads = inked.filter((_, k) => corr[k] >= 0.5)
+      // A page drawn with a pattern (the grey and white squares of "transparent") prints alike in
+      // every empty cell, so the alike ones can be the page and the rest the beads. The beads print
+      // a code like the other colours' codes; a pattern is like none of them.
+      const rest = inked.filter((_, k) => corr[k] < 0.5)
+      if (rest.length >= 3 && beads.length) {
+        const codes = groups.map((g, k) => (colourDist(g.colour, bg) >= 26 ? templates[k] : null)).filter((t): t is Float32Array => !!t)
+        const printLike = (members: number[]) => {
+          const t = unit(stack(cells, members))
+          return Math.max(-1, ...codes.map((c) => c.reduce((s, v, k) => s + v * t[k], 0)))
+        }
+        if (codes.length && printLike(rest) > printLike(beads) + LESS_LIKE) {
+          corr = look(rest)
+          beads = inked.filter((_, k) => corr[k] >= 0.5)
+        }
+      }
       // with hardly any alike, there is no bead of this colour: all of it is watermark
       inked.forEach((i, k) => {
         if (beads.length < 3 || corr[k] < WATERMARK_CORR) empty[i] = 1

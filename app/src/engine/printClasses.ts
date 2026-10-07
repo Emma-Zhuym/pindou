@@ -199,7 +199,7 @@ const LOOK_ALIKE = 60
 const colourDist = (a: Rgb, b: Rgb) => Math.abs(a.r - b.r) + Math.abs(a.g - b.g) + Math.abs(a.b - b.b)
 
 export interface ClassNames {
-  /** code index per class */
+  /** code index per class; -1: not a bead (the page under a pattern, a ruler's numbers) */
   code: number[]
   /** per class: another code would fit it nearly as well */
   doubt: boolean[]
@@ -242,6 +242,8 @@ export function nameClasses(classes: PrintClass[], codes: string[], given: numbe
   // size-weighted mean of their prints) and off its colour, and (with `moved`) its cells moved
   // from the name they were given
   const codeCost = (k: number, members: number[], moved = true) => {
+    // not a bead: no count printed for it, no print of its own; only the cells moved there count
+    if (k === EMPTY) return moved ? members.reduce((t, j) => t + size[j] * INERTIA, 0) : 0
     let n = fixed[k]
     for (const j of members) n += size[j]
     let total = want[k] === undefined ? 0 : Math.abs(n - want[k]!)
@@ -257,8 +259,15 @@ export function nameClasses(classes: PrintClass[], codes: string[], given: numbe
     }
     return total
   }
+  const EMPTY = K
+  // how like print each class is: its best likeness to a class first named another code
+  const textLike = classes.map((_, j) => {
+    let best = -1
+    for (let i = 0; i < C; i++) if (given[i] !== given[j]) best = Math.max(best, G[j * C + i])
+    return best
+  })
   const code = [...given]
-  const members = Array.from({ length: K }, (_, k) => code.flatMap((c, j) => (c === k ? [j] : [])))
+  const members = Array.from({ length: K + 1 }, (_, k) => code.flatMap((c, j) => (c === k ? [j] : [])))
   const costs = members.map((m, k) => codeCost(k, m))
   // what moving these classes to `to` would change
   const moveDelta = (js: number[], to: number) => {
@@ -302,6 +311,28 @@ export function nameClasses(classes: PrintClass[], codes: string[], given: numbe
             improved = true
           }
         }
+      // A class not a bead at all: its code has at least that many cells more than the legend
+      // prints (a patterned page, a ruler, counted as beads). Only with every count printed, and
+      // only when the count says so: a class merely unlike its code's print stays a bead. Which of
+      // the code's classes it is: the one least like print, clearly less than its code's others
+      // (codes print in one font, alike; a pattern is like none of them).
+      if (want.every((n) => n !== undefined)) {
+        for (let k = 0; k < K; k++) {
+          const order = [...members[k]].sort((a, b) => textLike[a] - textLike[b])
+          const j = order[0]
+          if (j === undefined) continue
+          const others = order.slice(1)
+          if (others.length && textLike[j] + LESS_LIKE > Math.max(...others.map((i) => textLike[i]))) continue
+          const n = fixed[k] + members[k].reduce((t, i) => t + size[i], 0)
+          const extra = Math.abs(n - want[k]!) - Math.abs(n - size[j] - want[k]!)
+          if (extra < NOT_BEAD * size[j]) continue
+          const { delta, after } = moveDelta([j], EMPTY)
+          if (delta < -1e-6) {
+            apply(after)
+            improved = true
+          }
+        }
+      }
       if (!improved) break
     }
   }
@@ -317,7 +348,7 @@ export function nameClasses(classes: PrintClass[], codes: string[], given: numbe
       if (codeCost(a, members[b], false) + codeCost(b, members[a], false) - plain[a] - plain[b] < DOUBT_TRADE * cells) for (const j of [...members[a], ...members[b]]) doubt[j] = true
     }
   code.forEach((k, j) => {
-    if (doubt[j]) return
+    if (doubt[j] || k === EMPTY) return
     for (let o = 0; o < K; o++) {
       if (o === k || colourDist(classes[j].colour, colours[o]) > LOOK_ALIKE) continue
       const without = members[k].filter((i) => i !== j)
@@ -328,8 +359,12 @@ export function nameClasses(classes: PrintClass[], codes: string[], given: numbe
       }
     }
   })
-  return { code, doubt }
+  return { code: code.map((k) => (k === EMPTY ? -1 : k)), doubt }
 }
+/** a class is taken for no bead when its code's count is over by at least this share of it */
+const NOT_BEAD = 0.8
+/** ...and it is at least this much less like print than its code's other classes */
+const LESS_LIKE = 0.15
 /** another code costing less than this much more per cell leaves a class in doubt */
 const DOUBT = 0.3
 /** two codes trading all their cells for less than this much more per cell leaves both in doubt.
