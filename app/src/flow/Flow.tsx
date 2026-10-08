@@ -35,6 +35,13 @@ const AI_PHASE_LABEL: Record<AiRequestPhase, string> = {
   'cell-check': '格子',
 }
 
+/** A legend list as a key: its codes and counts, in no particular order. */
+const listKey = (entries: { code: string; count?: number }[]) =>
+  entries
+    .map((e) => `${e.code}:${e.count ?? ''}`)
+    .sort()
+    .join(' ')
+
 /** Keep the user's note useful without hiding how many paid requests the run used. */
 function formatAiCalls(calls: AiRequestEvent[]): string {
   if (!calls.length) return ''
@@ -99,6 +106,8 @@ export function Flow({ chart, onClose, onSaved, existingTags = [] }: { chart?: C
   }
   const setLegendRect = edited(setLegendRectState)
   const trace = (event: AiRequestEvent) => setAiCalls((calls) => [...calls, event])
+  // the codes and counts the cells were last read with
+  const recognisedWith = useRef('')
 
   async function open(src: Blob | string, saved?: Chart) {
     setError('')
@@ -150,6 +159,8 @@ export function Flow({ chart, onClose, onSaved, existingTags = [] }: { chart?: C
           })
         }
       }
+      // a saved chart's cells were read with its saved list
+      if (saved) recognisedWith.current = listKey(n.filter(Boolean).map((code) => ({ code, count: saved.legend[code] })))
       setFile(blob)
       setImg(image)
       setDraft(located)
@@ -257,6 +268,14 @@ export function Flow({ chart, onClose, onSaved, existingTags = [] }: { chart?: C
     try {
       const entries = confirmedEntries(names, legend)
       setLegendState(Object.fromEntries(entries.filter((e) => e.count !== undefined).map((e) => [e.code, e.count!])))
+      // The same codes and counts as the cells were read with: the person only renamed whole
+      // groups (a swap, a recolour into a code of the list). Keep their groups; reading the
+      // cells again would bring the old names back.
+      if (rec && recognisedWith.current === listKey(entries)) {
+        setLegendConfirmed(true)
+        setStep('wall')
+        return
+      }
       setBusy('色号已确认，正在本机识别每个格子…')
       await new Promise((r) => setTimeout(r, 30))
       const raster = toRaster(img)
@@ -266,6 +285,7 @@ export function Flow({ chart, onClose, onSaved, existingTags = [] }: { chart?: C
       setRec(result)
       setNamesState(result.groups.map((g) => g.code))
       setAssignState(Int16Array.from(result.assign))
+      recognisedWith.current = listKey(entries)
       setLegendConfirmed(true)
       setCellsReviewed(false)
       setDirty(true)
@@ -1396,7 +1416,7 @@ function CodesPage(props: {
         {insertAt === null && addRow}
       </section>
       <p className="hint">
-        {rec ? '色号和图例颗数已确认。需要改图例时，改完会重新识别格子，替换之前的格子修改。' : '请对照上方原图，核查全部色号和颗数；漏号可插入，错号可改或删除。未读清的颗数可以留空，不会强行凑数。确认之前不会分类格子，也不会调用格子 AI。'}
+        {rec ? '色号和图例颗数已确认。交换两组、整组改色会保留格子；增删色号或改颗数后，会重新识别格子，替换之前的格子修改。' : '请对照上方原图，核查全部色号和颗数；漏号可插入，错号可改或删除。未读清的颗数可以留空，不会强行凑数。确认之前不会分类格子，也不会调用格子 AI。'}
       </p>
       <div className="nextbar">
         <button className="primary" disabled={busy || !live.length || live.some((c) => !(c in CATALOGUE)) || (!rec && dupes.size > 0)} onClick={onNext}>
