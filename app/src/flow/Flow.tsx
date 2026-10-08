@@ -108,6 +108,14 @@ export function Flow({ chart, onClose, onSaved, existingTags = [] }: { chart?: C
   const trace = (event: AiRequestEvent) => setAiCalls((calls) => [...calls, event])
   // the codes and counts the cells were last read with
   const recognisedWith = useRef('')
+  // cells the person moved by hand on the review page: the model's reading never overrides them
+  const touched = useRef(new Set<number>())
+  const editCells = (next: Int16Array) => {
+    next.forEach((g, i) => {
+      if (g !== assign[i]) touched.current.add(i)
+    })
+    setAssign(next)
+  }
 
   async function open(src: Blob | string, saved?: Chart) {
     setError('')
@@ -160,6 +168,7 @@ export function Flow({ chart, onClose, onSaved, existingTags = [] }: { chart?: C
         }
       }
       // a saved chart's cells were read with its saved list
+      touched.current = new Set()
       if (saved) recognisedWith.current = listKey(n.filter(Boolean).map((code) => ({ code, count: saved.legend[code] })))
       setFile(blob)
       setImg(image)
@@ -189,14 +198,14 @@ export function Flow({ chart, onClose, onSaved, existingTags = [] }: { chart?: C
       const ai = loadAiSettings()
       const notes: string[] = []
       let current = { rec, names, assign }
-      const named = await nameClassesWithAi(img, rec, names, assign, ai, record)
+      const named = await nameClassesWithAi(img, rec, names, assign, ai, record, touched.current)
       if (named) {
         current = named
         const sure = named.asked - named.unread - named.renamed
         notes.push(`读了 ${named.asked} 堆的字：${[sure && `${sure} 堆名字没错`, named.renamed && `改了 ${named.renamed} 堆共 ${named.moved} 格`, named.unread && `${named.unread} 堆没读清，仍按原来的名字`].filter(Boolean).join('，')}`)
       }
       setBusy('AI 正在核对没把握的格子…')
-      const checked = await checkCells(img, current.rec, current.names, current.assign, ai, record)
+      const checked = await checkCells(img, current.rec, current.names, current.assign, ai, record, touched.current)
       if (checked) {
         current = checked
         notes.push(`看了 ${checked.asked} 个没把握的格子，改了 ${checked.changed} 格${checked.unread ? `，${checked.unread} 格没读出色号，仍需手动核对` : ''}${checked.vetoed ? `，拦下 ${checked.vetoed} 个颜色不相容的改动` : ''}`)
@@ -286,6 +295,7 @@ export function Flow({ chart, onClose, onSaved, existingTags = [] }: { chart?: C
       setNamesState(result.groups.map((g) => g.code))
       setAssignState(Int16Array.from(result.assign))
       recognisedWith.current = listKey(entries)
+      touched.current = new Set()
       setLegendConfirmed(true)
       setCellsReviewed(false)
       setDirty(true)
@@ -449,7 +459,7 @@ export function Flow({ chart, onClose, onSaved, existingTags = [] }: { chart?: C
           </>
         )}
         {step === 'wall' && img && rec && cellsReady && <>
-          <WallPage img={img} rec={rec} names={names} assign={assign} counts={counts} legend={legend} onAssign={setAssign} onNames={(v) => { setNamesState(v); setDirty(true); setCellsReviewed(false) }} onAskCells={askCells} />
+          <WallPage img={img} rec={rec} names={names} assign={assign} counts={counts} legend={legend} onAssign={editCells} onNames={(v) => { setNamesState(v); setDirty(true); setCellsReviewed(false) }} onAskCells={askCells} />
           <div className="nextbar"><button className="primary" disabled={!!busy} onClick={() => { setCellsReviewed(true); setStep('list') }}>格子已核对，查看原图对比</button></div>
         </>}
         {step === 'list' && img && rec && cellsReady && cellsReviewed && <>
@@ -507,7 +517,7 @@ function classesToRead(rec: Recognition): number[][] {
  * colour and similar counts swapped) is a class whose cells all print another code: a few clear
  * cells settle it, and the class's cells move together. Cells the person already moved stay put.
  */
-async function nameClassesWithAi(img: HTMLImageElement, rec: Recognition, names: string[], assign: Int16Array, ai: AiSettings, trace?: (event: AiRequestEvent) => void) {
+async function nameClassesWithAi(img: HTMLImageElement, rec: Recognition, names: string[], assign: Int16Array, ai: AiSettings, trace?: (event: AiRequestEvent) => void, touched = new Set<number>()) {
   const classes = classesToRead(rec)
   const codes = [...new Set(names.filter(Boolean))]
   if (!classes.length || !codes.length) return null
@@ -537,7 +547,7 @@ async function nameClassesWithAi(img: HTMLImageElement, rec: Recognition, names:
     if (to < 0) to = nextNames.push(code) - 1
     if (to !== from) renamed++
     for (const i of cells) {
-      if (assign[i] !== from) continue
+      if (assign[i] !== from || touched.has(i)) continue
       if (to !== from) moved++
       nextAssign[i] = to
       unsure[i] = 0
@@ -550,8 +560,8 @@ const colourDistance = (a: { r: number; g: number; b: number }, b: { r: number; 
 
 /** The model's reading of doubtful cells laid onto the board: read codes replace the guess, and the
  *  cell counts as checked. Cells it saw no code in are left as they were. */
-async function checkCells(img: HTMLImageElement, rec: Recognition, names: string[], assign: Int16Array, ai: AiSettings, trace?: (event: AiRequestEvent) => void) {
-  const cells = doubtfulCells(rec, assign)
+async function checkCells(img: HTMLImageElement, rec: Recognition, names: string[], assign: Int16Array, ai: AiSettings, trace?: (event: AiRequestEvent) => void, touched = new Set<number>()) {
+  const cells = doubtfulCells(rec, assign).filter((i) => !touched.has(i))
   const codes = [...new Set(names.filter(Boolean))]
   if (!cells.length || !codes.length) return null
   const read = await readCellsWithAi(img, rec, cells, codes, ai, trace, 'cell-check')

@@ -292,8 +292,6 @@ function ChartDetail(props: { chart: Chart; onBack: () => void; onEdit: () => vo
   }
   const rows = Object.entries(chart.counts).sort((a, b) => codeOrder(a[0], b[0]))
   const total = rows.reduce((a, [, n]) => a + n, 0)
-  const legendCodes = Object.keys(chart.legend)
-  const off = legendCodes.filter((c) => (chart.counts[c] ?? 0) !== chart.legend[c]).length
 
   return (
     <div className="page">
@@ -370,14 +368,12 @@ function ChartDetail(props: { chart: Chart; onBack: () => void; onEdit: () => vo
         <div className="line head">
           <span className="sub">
             {chart.cols}×{chart.rows} · {rows.length} 色 · {total} 颗
-            {legendCodes.length > 0 && (off ? ` · ${off} 色与图例对不上` : ' · 与图例一致')}
           </span>
         </div>
         {rows.map(([code, n]) => (
           <div key={code} className="line">
             <span className="swatch" style={{ background: codeColour(code) }} />
             <b>{code}</b>
-            {chart.legend[code] !== undefined && chart.legend[code] !== n && <span className="sub">图例 {chart.legend[code]}</span>}
             {stock && chart.status !== 'done' && (
               <span className={(stock.beads[code] ?? 0) < n ? 'sub bad' : 'sub'}>
                 {(stock.beads[code] ?? 0) < n ? `库存 ${stock.beads[code] ?? 0}，缺 ${n - (stock.beads[code] ?? 0)}` : `库存 ${stock.beads[code]}`}
