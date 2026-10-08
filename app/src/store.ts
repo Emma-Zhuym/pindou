@@ -25,6 +25,9 @@ export interface Chart {
   rows: number
   /** final code of each cell, row by row; '' for an empty cell */
   cells: string[]
+  /** the cells as recognised and saved from the recognition, before any hand editing (missing
+   *  on charts saved before it was kept: the editor keeps the cells it first opened instead) */
+  original?: string[]
   /** code -> beads, from `cells` */
   counts: Record<string, number>
   /** counts as printed on the chart's legend, where entered */

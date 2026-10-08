@@ -23,6 +23,8 @@ const chart = {
   cols,
   rows,
   cells,
+  // recognised as all B11 in the first row: the edits since then can be compared and undone
+  original: cells.map((c, i) => (i < cols ? 'B11' : c)),
   counts: { A1: cells.filter((c) => c === 'A1').length, B11: cells.filter((c) => c === 'B11').length, F10: cells.filter((c) => c === 'F10').length },
   legend: {},
   legendRect: null,

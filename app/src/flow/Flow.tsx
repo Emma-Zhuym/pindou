@@ -361,6 +361,7 @@ export function Flow({ chart, onClose, onSaved, existingTags = [] }: { chart?: C
         cols: rec.cells.cols,
         rows: rec.cells.rows,
         cells,
+        original: cells,
         counts: countCells(cells),
         legend,
         legendRect,

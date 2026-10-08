@@ -20,7 +20,8 @@ const UNDO_DEPTH = 50
  * Editing a saved chart by hand: paint cells with a code, erase them, pick a code off the board,
  * swap one code for another everywhere, undo. Saving rewrites the chart's cells, counts and
  * thumbnail; the recogniser's editing state is dropped so a later "修改识别结果" starts from these
- * cells rather than from the older recognition.
+ * cells rather than from the older recognition. The recognised version is kept beside them: it can
+ * be shown in place of the edits for a moment, or put back (an undo step like any other).
  */
 export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () => void; onSave: (c: Chart) => Promise<void> }) {
   const { cols, rows } = chart
@@ -34,6 +35,10 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
   // every cell of one code changed to another (replace), or two codes trading places (exchange)
   const [swap, setSwap] = useState<{ from: string; to: string; exchange?: boolean } | null>(null)
   const [saving, setSaving] = useState(false)
+  // the recognised version (or, on older charts, the cells as first opened), and showing it
+  const original = chart.original?.length === chart.cells.length ? chart.original : chart.cells
+  const [comparing, setComparing] = useState(false)
+  const changed = useMemo(() => cells.reduce((n, c, i) => n + (c !== original[i] ? 1 : 0), 0), [cells, original])
   const fitCell = Math.floor(Math.min(document.documentElement.clientWidth - 40, 900) / (Math.max(cols, rows) + 2))
   const [cell, setCell] = useState(Math.max(MIN_CELL, fitCell))
   const maxCell = Math.max(MIN_CELL, Math.floor(MAX_SIDE / (Math.max(cols, rows) + 2)))
@@ -45,10 +50,11 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
     current.current = cells
   })
 
-  const opts = { cells, cols, rows, cell, board: null, labels }
+  const shown = comparing ? original : cells
+  const opts = { cells: shown, cols, rows, cell, board: null, labels }
   useEffect(() => {
-    if (ref.current) paintChart(ref.current, { cells, cols, rows, cell, board: null, labels })
-  }, [cells, cols, rows, cell, labels])
+    if (ref.current) paintChart(ref.current, { cells: shown, cols, rows, cell, board: null, labels })
+  }, [shown, cols, rows, cell, labels])
   const stageRef = useRef<HTMLDivElement>(null)
   const pinching = usePinchZoom(stageRef, ref, cell, setCell, MIN_CELL, maxCell)
 
@@ -84,7 +90,7 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
     setCells(next)
   }
   const down = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (tool === 'move' || pinching()) return
+    if (comparing || tool === 'move' || pinching()) return
     const i = at(e)
     if (i < 0) return
     if (tool === 'picker') {
@@ -139,6 +145,7 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
         thumb: await boardThumb(cols, rows, cells),
         // the recognition's groups no longer describe these cells
         edit: { ...chart.edit, engine: 0 },
+        original,
         progress: chart.progress ? { ...chart.progress, done: chart.progress.done.filter((c) => c in counted) } : undefined,
         updatedAt: Date.now(),
       })
@@ -161,7 +168,7 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
         <div className="beadtitle">
           <b>编辑 · {chart.title}</b>
           <span className="sub">
-            {cols}×{rows} · {counts.length} 色 · {counts.reduce((a, [, n]) => a + n, 0)} 颗
+            {comparing ? `识别时的原版 · 之后改了 ${changed} 格` : `${cols}×${rows} · ${counts.length} 色 · ${counts.reduce((a, [, n]) => a + n, 0)} 颗`}
           </span>
         </div>
         <button className="small glass" disabled={!history.length} onClick={undo}>
@@ -180,9 +187,26 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
             </button>
           ))}
         </div>
-        <button className="chip" onClick={() => setSwap({ from: code, to: code })}>
+        <button className="chip" disabled={comparing} onClick={() => setSwap({ from: code, to: code })}>
           批量换色
         </button>
+        {changed > 0 && (
+          <>
+            <button className={comparing ? 'chip on' : 'chip'} aria-pressed={comparing} onClick={() => setComparing(!comparing)}>
+              {comparing ? '看修改后' : '对比原版'}
+            </button>
+            <button
+              className="chip"
+              onClick={() => {
+                if (!window.confirm(`把改过的 ${changed} 格还原成识别时的样子？还原后可以撤销。`)) return
+                commit(original, cells)
+                setComparing(false)
+              }}
+            >
+              还原
+            </button>
+          </>
+        )}
         <button
           className={labels ? 'chip on' : 'chip'}
           onClick={() => {
