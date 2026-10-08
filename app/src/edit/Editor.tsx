@@ -27,6 +27,8 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
   const { cols, rows } = chart
   const [cells, setCells] = useState<string[]>(chart.cells)
   const [history, setHistory] = useState<string[][]>([])
+  // what undo took back, for redo; any new change clears it
+  const [future, setFuture] = useState<string[][]>([])
   const [tool, setTool] = useState<Tool>('move')
   const [code, setCode] = useState<string>(() => Object.keys(chart.counts).sort(codeOrder)[0] ?? 'H2')
   const [labels, setLabels] = useState(chart.progress?.labels ?? true)
@@ -63,13 +65,22 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
 
   const commit = (next: string[], before: string[]) => {
     setHistory((h) => [...h.slice(-UNDO_DEPTH + 1), before])
+    setFuture([])
     setCells(next)
   }
   const undo = () => {
     const prev = history[history.length - 1]
     if (!prev) return
     setHistory(history.slice(0, -1))
+    setFuture((f) => [...f, cells])
     setCells(prev)
+  }
+  const redo = () => {
+    const next = future[future.length - 1]
+    if (!next) return
+    setFuture(future.slice(0, -1))
+    setHistory((h) => [...h.slice(-UNDO_DEPTH + 1), cells])
+    setCells(next)
   }
 
   const at = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -119,7 +130,10 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
   const up = () => {
     const s = stroke.current
     stroke.current = null
-    if (s?.changed) setHistory((h) => [...h.slice(-UNDO_DEPTH + 1), s.before])
+    if (s?.changed) {
+      setHistory((h) => [...h.slice(-UNDO_DEPTH + 1), s.before])
+      setFuture([])
+    }
   }
 
   const swapCount = swap ? cells.filter((c) => c === swap.from).length : 0
@@ -171,9 +185,6 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
             {comparing ? `识别时的原版 · 之后改了 ${changed} 格` : `${cols}×${rows} · ${counts.length} 色 · ${counts.reduce((a, [, n]) => a + n, 0)} 颗`}
           </span>
         </div>
-        <button className="small glass" disabled={!history.length} onClick={undo}>
-          撤销
-        </button>
         <button className="primary small" disabled={!dirty || saving} onClick={save}>
           {saving ? '保存中…' : '保存'}
         </button>
@@ -198,7 +209,7 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
             <button
               className="chip"
               onClick={() => {
-                if (!window.confirm(`把改过的 ${changed} 格还原成识别时的样子？还原后可以撤销。`)) return
+                if (!window.confirm(`把改过的 ${changed} 格还原成识别时的样子？还原后可以点右下角的撤销拿回来。`)) return
                 commit(original, cells)
                 setComparing(false)
               }}
@@ -235,6 +246,15 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
       </div>
 
       <nav className="beadpalette" aria-label="色号">
+        {/* undo and redo on the palette's shoulder, near the thumb */}
+        <div className="undodock">
+          <button className="roundbtn" aria-label="撤销" disabled={comparing || !history.length} onClick={undo}>
+            <Icon d={ICONS.undo} size={22} />
+          </button>
+          <button className="roundbtn" aria-label="重做" disabled={comparing || !future.length} onClick={redo}>
+            <Icon d={ICONS.redo} size={22} />
+          </button>
+        </div>
         <div className="focusbar">
           <span className="swatch" style={{ background: codeColour(code) }} />
           <b>{code}</b>

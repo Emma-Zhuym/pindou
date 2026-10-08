@@ -260,3 +260,16 @@
   padding: 28px 16px calc(14px + env(safe-area-inset-bottom));
   background: linear-gradient(rgba(242, 239, 232, 0), var(--bg) 45%);
 }
+
+/* undo and redo: small paper squares in a pencil frame */
+[data-skin='sketch'] .roundbtn {
+  border-style: solid;
+  border-width: 6px;
+  border-image: url('./paper/pencil-small.png') 28 / 6px / 0 stretch;
+  border-radius: 4px;
+  background: var(--bg) url('./paper/paper.jpg') repeat;
+  background-size: 640px 640px;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}

@@ -35,6 +35,8 @@ export async function boardThumb(cols: number, rows: number, cells: string[]): P
 }
 
 export const ICONS = {
+  undo: 'M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11',
+  redo: 'M15 14l5-5-5-5M20 9H9.5a5.5 5.5 0 0 0 0 11H13',
   charts: 'M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zM4 9.5h16M4 14.5h16M9.5 4v16M14.5 4v16',
   stock: 'M4 13.5 6.5 6h11l2.5 7.5M4 13.5V18a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4.5M4 13.5h4.5l1 2h5l1-2H20',
   stats: 'M4 20h16M7 20v-7M12 20V5M17 20v-10',
