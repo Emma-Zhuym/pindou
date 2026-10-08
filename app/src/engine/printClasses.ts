@@ -211,9 +211,10 @@ export interface ClassNames {
  * codes trade all their classes, wherever that brings the counts closer to the printed ones, by
  * more than the cells moved (INERTIA), with the classes of a code printing alike. Colour does not
  * judge between codes here: charts draw codes in their own shades, often nearer another code's
- * catalogue colour than their own. `fixed`: cells per code outside any class.
+ * catalogue colour than their own; a code's swatch read off this chart's legend (`swatch`) is
+ * its true colour here and counts in full. `fixed`: cells per code outside any class.
  */
-export function nameClasses(classes: PrintClass[], codes: string[], given: number[], want: (number | undefined)[], colours: Rgb[], fixed: number[]): ClassNames {
+export function nameClasses(classes: PrintClass[], codes: string[], given: number[], want: (number | undefined)[], colours: Rgb[], fixed: number[], swatch: (Rgb | null)[] = []): ClassNames {
   const K = want.length
   const C = classes.length
   const D = SIDE * SIDE
@@ -231,13 +232,48 @@ export function nameClasses(classes: PrintClass[], codes: string[], given: numbe
   const known = codes.map((c) => CATALOGUE[c])
   const nearestKnown = classes.map((c) => Math.min(...known.filter(Boolean).map((k) => colourDist(c.colour, k))))
   const faithful = weightedMedian(nearestKnown, size) <= FAITHFUL
+  // each code's colour on this chart: its own legend swatch where read surely, else the
+  // catalogue's on a chart drawn in catalogue colours; null where neither can be trusted
+  const ref = codes.map((_, k) => swatch[k] ?? (faithful ? known[k] : null))
   const stray = classes.map((c) =>
-    known.map((k) => {
+    known.map((k, code) => {
+      const own = ref[code]
+      if (own) return (c.cells.length * Math.min(colourDist(c.colour, own), COLOUR_CAP)) / COLOUR_SCALE
       if (!k) return 0
-      const d = colourDist(c.colour, k)
-      return (c.cells.length * (faithful ? Math.min(d, COLOUR_CAP) : Math.max(0, d - STRAY))) / COLOUR_SCALE
+      return (c.cells.length * Math.max(0, colourDist(c.colour, k) - STRAY)) / COLOUR_SCALE
     }),
   )
+  /**
+   * Two codes trading all their classes, by colour: the mean colour of all of each code's cells
+   * (a watermark tinting a few classes hardly moves it) against the two codes' colours, uncapped.
+   * Negative when the trade brings each code's cells nearer its own colour. A single class is
+   * still judged with the cap: a tinted class must not be pulled about by its tint.
+   */
+  const tradeColour = (a: number, b: number, ma: number[], mb: number[]) => {
+    const ra = ref[a]
+    const rb = ref[b]
+    if (!ra || !rb) return 0
+    const mean = (m: number[]) => {
+      const n = m.reduce((t, j) => t + size[j], 0)
+      if (!n) return null
+      const c = { r: 0, g: 0, b: 0 }
+      for (const j of m) {
+        c.r += (classes[j].colour.r * size[j]) / n
+        c.g += (classes[j].colour.g * size[j]) / n
+        c.b += (classes[j].colour.b * size[j]) / n
+      }
+      return { c, n }
+    }
+    const A = mean(ma)
+    const B = mean(mb)
+    let d = 0
+    if (A) d += (A.n * (colourDist(A.c, rb) - colourDist(A.c, ra))) / COLOUR_SCALE
+    if (B) d += (B.n * (colourDist(B.c, ra) - colourDist(B.c, rb))) / COLOUR_SCALE
+    // the capped colour terms the classes already carry, which this replaces for a whole trade
+    for (const j of ma) d -= stray[j][b] - stray[j][a]
+    for (const j of mb) d -= stray[j][a] - stray[j][b]
+    return d
+  }
   // one code's share of the cost: its count off the printed one, its classes off its print (the
   // size-weighted mean of their prints) and off its colour, and (with `moved`) its cells moved
   // from the name they were given
@@ -295,7 +331,7 @@ export function nameClasses(classes: PrintClass[], codes: string[], given: numbe
           if (colourDist(colours[a], colours[b]) > TRADE_COLOUR) continue
           const ma = members[a]
           const mb = members[b]
-          const delta = codeCost(a, mb) + codeCost(b, ma) - costs[a] - costs[b]
+          const delta = codeCost(a, mb) + codeCost(b, ma) - costs[a] - costs[b] + tradeColour(a, b, ma, mb)
           if (delta < -1e-6) {
             apply(new Map([[a, mb], [b, ma]]))
             improved = true
@@ -345,7 +381,7 @@ export function nameClasses(classes: PrintClass[], codes: string[], given: numbe
     for (let b = a + 1; b < K; b++) {
       if (colourDist(colours[a], colours[b]) > LOOK_ALIKE || (!members[a].length && !members[b].length)) continue
       const cells = [...members[a], ...members[b]].reduce((n, j) => n + size[j], 0)
-      if (codeCost(a, members[b], false) + codeCost(b, members[a], false) - plain[a] - plain[b] < DOUBT_TRADE * cells) for (const j of [...members[a], ...members[b]]) doubt[j] = true
+      if (codeCost(a, members[b], false) + codeCost(b, members[a], false) - plain[a] - plain[b] + tradeColour(a, b, members[a], members[b]) < DOUBT_TRADE * cells) for (const j of [...members[a], ...members[b]]) doubt[j] = true
     }
   code.forEach((k, j) => {
     if (doubt[j] || k === EMPTY) return

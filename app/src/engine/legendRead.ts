@@ -283,6 +283,13 @@ export function fitList(rec: Recognition, list: LegendEntry[], local?: Reading |
   const codes = list.map((e) => e.code)
   const seed = new Map<string, Rgb>()
   local?.groups.forEach((g) => seed.set(g.code, g.colour))
+  // A swatch of this chart's own legend whose code was read surely: the colour this chart draws
+  // that code in, better than the catalogue's (charts shade codes their own way)
+  const sure = new Map<string, Rgb>()
+  local?.groups.forEach((g, k) => {
+    if (!local.unsureName[k]) sure.set(g.code, g.colour)
+  })
+  const swatch = codes.map((c) => sure.get(c) ?? null)
   let centres: Rgb[] = codes.map((c) => seed.get(c) ?? CATALOGUE[c] ?? { r: 128, g: 128, b: 128 })
   const { fill } = rec.cells
   let assign = nearest(rec, centres).assign
@@ -343,7 +350,7 @@ export function fitList(rec: Recognition, list: LegendEntry[], local?: Reading |
   }
   assign = refineByLabels(rec, centres, assign)
   const coverage = nearest(rec, centres).coverage
-  const { assign: byPrint, doubt, classes } = classesNamed(rec, codes, want, centres, assign)
+  const { assign: byPrint, doubt, classes } = classesNamed(rec, codes, want, centres, assign, swatch)
   assign = byPrint
   centres = codes.map((_, k) => meanFill(rec, assign, k) ?? centres[k])
   // the names came from the list: none is a guess
@@ -356,7 +363,7 @@ export function fitList(rec: Recognition, list: LegendEntry[], local?: Reading |
  * together. Cells worth a second look: those of a class another code would fit nearly as well, and
  * those whose colour is far from every code's with no print to go by.
  */
-function classesNamed(rec: Recognition, codes: string[], want: (number | undefined)[], colours: Rgb[], assign: Int16Array) {
+function classesNamed(rec: Recognition, codes: string[], want: (number | undefined)[], colours: Rgb[], assign: Int16Array, swatch: (Rgb | null)[]) {
   const { share, fill } = rec.cells
   const beads: number[] = []
   const fixed = codes.map(() => 0)
@@ -371,7 +378,7 @@ function classesNamed(rec: Recognition, codes: string[], want: (number | undefin
     for (const i of c.cells) n.set(assign[i], (n.get(assign[i]) ?? 0) + 1)
     return [...n].sort((a, b) => b[1] - a[1])[0][0]
   })
-  const named = nameClasses(classes, codes, given, want, colours, fixed)
+  const named = nameClasses(classes, codes, given, want, colours, fixed, swatch)
   const out = Int16Array.from(assign)
   const doubt = new Uint8Array(assign.length)
   classes.forEach((c, j) => {
