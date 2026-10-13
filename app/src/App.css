@@ -1048,7 +1048,8 @@ img.boardview {
   padding: 20px 16px 16px;
   border: 1px solid var(--glass-edge);
   border-radius: 36px;
-  background: var(--glass);
+  /* thicker than the bars' glass: sheets hold text to read, and can sit on top of one another */
+  background: color-mix(in srgb, var(--card) 80%, transparent);
   box-shadow: var(--glass-rim, none);
   backdrop-filter: var(--glass-filter);
   -webkit-backdrop-filter: var(--glass-filter);

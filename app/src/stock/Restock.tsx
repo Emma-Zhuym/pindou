@@ -1,22 +1,28 @@
 import { useRef, useState } from 'react'
 import { ColourCard } from '../edit/ColourCard'
-import { codeColour } from '../shared'
+import { codeColour, codeOrder } from '../shared'
 import { BAGS, grams, looksLikeGrams, PER_GRAM, readTable, SET_221 } from './beads'
 
-type Mode = 'codes' | 'set' | 'table'
+type Mode = 'codes' | 'many' | 'set' | 'table'
 const MODES: [Mode, string][] = [
   ['codes', '按色号'],
+  ['many', '多色同量'],
   ['set', '整套'],
-  ['table', '表格导入'],
+  ['table', '表格'],
 ]
 
-/** Restocking: some codes by the gram, a whole set at one bag size, or a table of codes and amounts. */
+/** Restocking: some codes by the gram, many codes at one amount, a whole set at one bag size, or a
+ *  table of codes and amounts. */
 export function Restock({ onClose, onSave }: { onClose: () => void; onSave: (delta: Record<string, number>, note: string) => Promise<void> }) {
   const [mode, setMode] = useState<Mode>('codes')
   const [saving, setSaving] = useState(false)
   // by code: grams on each line
   const [lines, setLines] = useState<{ code: string; g: string }[]>([{ code: '', g: '' }])
   const [picking, setPicking] = useState<number | null>(null)
+  // many codes, one amount each
+  const [many, setMany] = useState<string[]>([])
+  const [manyG, setManyG] = useState(String(BAGS[2] ?? 40))
+  const [pickingMany, setPickingMany] = useState(false)
   // a whole set
   const [bag, setBag] = useState(BAGS[0])
   const [bags, setBags] = useState(1)
@@ -37,6 +43,10 @@ export function Restock({ onClose, onSave }: { onClose: () => void; onSave: (del
       const n = Math.round(Number(l.g) * PER_GRAM)
       if (l.code && n > 0) delta[l.code] = (delta[l.code] ?? 0) + n
     }
+  } else if (mode === 'many') {
+    const n = Math.round(Number(manyG) * PER_GRAM)
+    if (n > 0) for (const c of many) delta[c] = n
+    note = `${many.length} 色 · 每色 ${manyG} 克`
   } else if (mode === 'set') {
     for (const c of [...SET_221, ...(withL1 ? ['L1'] : [])]) delta[c] = bag * bags * PER_GRAM
     note = `整套 ${SET_221.length} 色${withL1 ? ' + L1' : ''} · 每色 ${bags > 1 ? `${bags}×` : ''}${bag} 克`
@@ -111,6 +121,36 @@ export function Restock({ onClose, onSave }: { onClose: () => void; onSave: (del
               ＋ 再加一个色号
             </button>
             <p className="hint">1 克约 {PER_GRAM} 颗，库存里按颗记。</p>
+          </>
+        )}
+
+        {mode === 'many' && (
+          <>
+            <p className="hint">选好一批色号，每个都补同样的克数。</p>
+            <div className="chips">
+              {[...many].sort(codeOrder).map((c) => (
+                <button key={c} className="chip" onClick={() => setMany(many.filter((x) => x !== c))} aria-label={`去掉 ${c}`}>
+                  <span className="swatch" style={{ background: codeColour(c) }} />
+                  {c}
+                  <span className="sub">×</span>
+                </button>
+              ))}
+              <button className="chip" onClick={() => setPickingMany(true)}>
+                {many.length ? '＋ 再选' : '选色号'}
+              </button>
+            </div>
+            <div className="segmented full" role="radiogroup" aria-label="每色克数">
+              {BAGS.map((b) => (
+                <button key={b} role="radio" aria-checked={manyG === String(b)} aria-selected={manyG === String(b)} onClick={() => setManyG(String(b))}>
+                  {b} 克
+                </button>
+              ))}
+            </div>
+            <div className="row">
+              <span className="sub">每色</span>
+              <input className="countinput" inputMode="decimal" value={manyG} onChange={(e) => setManyG(e.target.value.replace(/[^\d.]/g, ''))} aria-label="每色克数" />
+              <span className="sub">克</span>
+            </div>
           </>
         )}
 
@@ -220,6 +260,14 @@ export function Restock({ onClose, onSave }: { onClose: () => void; onSave: (del
         </div>
       </div>
     </div>
+      {pickingMany && (
+        <ColourCard
+          title="补哪些色号"
+          selected={many}
+          onPick={(c) => setMany((m) => (m.includes(c) ? m.filter((x) => x !== c) : [...m, c]))}
+          onClose={() => setPickingMany(false)}
+        />
+      )}
       {picking !== null && (
         <ColourCard
           title="补哪个色号"

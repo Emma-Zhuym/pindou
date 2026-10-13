@@ -33,9 +33,10 @@ function difference(a: string, b: string): number {
 
 /**
  * The MARD colour card: every code as a bead swatch, by series, the ones closest to `near` first,
- * searchable. Screen colours only approximate the real beads.
+ * searchable. Screen colours only approximate the real beads. With `selected`, several codes are
+ * picked: each tap adds or takes away one (the caller keeps the list), and the card stays open.
  */
-export function ColourCard({ title, near, value, onPick, onClose }: { title: string; near?: string; value?: string; onPick: (code: string) => void; onClose: () => void }) {
+export function ColourCard({ title, near, value, selected, onPick, onClose }: { title: string; near?: string; value?: string; selected?: string[]; onPick: (code: string) => void; onClose: () => void }) {
   const [query, setQuery] = useState('')
   const [all, setAll] = useState(false)
   const shown = (c: string) => all || STANDARD(c)
@@ -62,7 +63,7 @@ export function ColourCard({ title, near, value, onPick, onClose }: { title: str
     return [...m]
   }, [q, all]) // eslint-disable-line react-hooks/exhaustive-deps
   const swatch = (c: string) => (
-    <button key={c} className={`bead-swatch${c === value ? ' on' : ''}`} style={{ background: codeColour(c), color: inkOn(c) }} onClick={() => onPick(c)} title={c}>
+    <button key={c} className={`bead-swatch${c === value || selected?.includes(c) ? ' on' : ''}`} aria-pressed={selected ? selected.includes(c) : undefined} style={{ background: codeColour(c), color: inkOn(c) }} onClick={() => onPick(c)} title={c}>
       {c}
     </button>
   )
@@ -71,9 +72,15 @@ export function ColourCard({ title, near, value, onPick, onClose }: { title: str
       <div className="sheetbody wide colourcard" onClick={(e) => e.stopPropagation()}>
         <div className="row">
           <h2>{title}</h2>
-          <button className="link" onClick={onClose}>
-            关闭
-          </button>
+          {selected ? (
+            <button className="primary small" onClick={onClose}>
+              好了（{selected.length} 色）
+            </button>
+          ) : (
+            <button className="link" onClick={onClose}>
+              关闭
+            </button>
+          )}
         </div>
         <input className="search" placeholder="搜索色号，如 B1 或 H" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="搜索色号" />
         <div className="segmented small" role="radiogroup" aria-label="色号范围">
