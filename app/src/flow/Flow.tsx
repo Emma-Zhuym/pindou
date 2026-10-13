@@ -9,6 +9,7 @@ import { stack } from '../engine/cells'
 import { recognise, type Recognition } from '../engine/recognize'
 import { Icon } from '../Icon'
 import { LinkImport } from './LinkImport'
+import { PixelImport } from './PixelImport'
 import { confirmedEntries, locateBoard, locateLegend, type BoardDraft } from './stages'
 import { boardThumb, codeOrder, copyText, css, drawBoard, GREY, ICONS, newId } from '../shared'
 import { type Chart, countCells, ENGINE_VERSION, putChart, type Status, STATUS_LABEL } from '../store'
@@ -62,6 +63,8 @@ export function Flow({ chart, onClose, onSaved, existingTags = [] }: { chart?: C
     window.scrollTo(0, 0)
   }
   const [file, setFile] = useState<Blob | null>(chart?.image ?? null)
+  // pixel art, made into a chart by colour instead
+  const [pixel, setPixel] = useState<Blob | null>(null)
   const [sourceUrl, setSourceUrl] = useState(chart?.sourceUrl ?? '')
   const [img, setImg] = useState<HTMLImageElement | null>(null)
   const [draft, setDraft] = useState<BoardDraft | null>(null)
@@ -398,6 +401,8 @@ export function Flow({ chart, onClose, onSaved, existingTags = [] }: { chart?: C
           : ''
   const steps = chart ? STEPS.filter(([t]) => t !== 'grid') : STEPS
 
+  if (pixel) return <PixelImport file={pixel} existingTags={existingTags} onClose={() => setPixel(null)} onSaved={onSaved} />
+
   return (
     <div className="flow">
       <header className="flowbar">
@@ -427,6 +432,7 @@ export function Flow({ chart, onClose, onSaved, existingTags = [] }: { chart?: C
           <ImportPage
             busy={busy}
             error={error}
+            onPixel={setPixel}
             onOpen={(f) => {
               setSourceUrl('')
               setSuggested('')
@@ -742,8 +748,9 @@ function BoardComparison({ img, rec, names, assign }: { img: HTMLImageElement; r
 
 // ------------------------------------------------------------------ import
 
-function ImportPage(props: { busy: string; error: string; onOpen: (src: Blob | string) => void; onLink: (image: Blob, title: string, sourceUrl?: string) => void }) {
-  const { busy, error, onOpen, onLink } = props
+function ImportPage(props: { busy: string; error: string; onOpen: (src: Blob | string) => void; onLink: (image: Blob, title: string, sourceUrl?: string) => void; onPixel: (image: Blob) => void }) {
+  const { busy, error, onOpen, onLink, onPixel } = props
+  const pixelFile = useRef<HTMLInputElement>(null)
   useEffect(() => {
     const paste = (e: ClipboardEvent) => {
       const file = [...(e.clipboardData?.files ?? [])].find((f) => f.type.startsWith('image/'))
@@ -769,6 +776,10 @@ function ImportPage(props: { busy: string; error: string; onOpen: (src: Blob | s
         <span>也可以把图片拖进来，或直接粘贴</span>
       </label>
       <LinkImport disabled={!!busy} onPick={onLink} />
+      <button className="link" disabled={!!busy} onClick={() => pixelFile.current?.click()}>
+        没有印色号的像素画？按颜色转成图纸
+      </button>
+      <input ref={pixelFile} type="file" accept="image/*" hidden onChange={(e) => e.target.files?.[0] && onPixel(e.target.files[0])} />
       {/* other people's charts: on this Mac only, never in the published app */}
       {import.meta.env.DEV && (
         <div className="samples">

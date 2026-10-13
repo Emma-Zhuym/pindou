@@ -158,6 +158,12 @@ input:focus-visible {
 
 /* ---------------------------------------------------------------- flow */
 
+.flowname {
+  flex: 1;
+  text-align: center;
+  font-size: 17px;
+  font-weight: 600;
+}
 .flowbar {
   position: sticky;
   top: 0;
