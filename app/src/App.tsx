@@ -186,8 +186,12 @@ function Library({ charts, error, onOpen, onNew }: { charts: Chart[] | null; err
   const [query, setQuery] = useState('')
   const all = charts ?? []
   const tags = [...new Set(all.flatMap((c) => c.tags))].sort()
+  const q = query.trim()
+  const codeQuery = codeSearch(q)
+  // the codes of a chart a code search found in it, with their beads
+  const hitsOf = (c: Chart) => (codeQuery ? Object.entries(c.counts).filter(([code]) => codeQuery(code)) : [])
   const shown = all.filter(
-    (c) => (filter === 'all' || c.status === filter) && (!tag || c.tags.includes(tag)) && (!query.trim() || c.title.toLowerCase().includes(query.trim().toLowerCase())),
+    (c) => (filter === 'all' || c.status === filter) && (!tag || c.tags.includes(tag)) && (!q || c.title.toLowerCase().includes(q.toLowerCase()) || hitsOf(c).length > 0),
   )
   const count = (s: Status) => all.filter((c) => c.status === s).length
 
@@ -200,7 +204,7 @@ function Library({ charts, error, onOpen, onNew }: { charts: Chart[] | null; err
       {error && <p className="error">{error}</p>}
       {all.length > 0 && (
         <>
-          <input className="search" type="search" placeholder="搜索名称" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="搜索图纸" />
+          <input className="search" type="search" placeholder="搜索名称或色号，如 P、H2" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="搜索图纸" />
           <div className="segmented" role="tablist" aria-label="按状态筛选">
             <button role="tab" aria-selected={filter === 'all'} onClick={() => setFilter('all')}>
               全部
@@ -234,14 +238,26 @@ function Library({ charts, error, onOpen, onNew }: { charts: Chart[] | null; err
       {all.length > 0 && shown.length === 0 && <p className="hint">没有符合条件的图纸。</p>}
       <div className="grid">
         {shown.map((c) => (
-          <ChartCard key={c.id} chart={c} onOpen={() => onOpen(c.id)} />
+          <ChartCard key={c.id} chart={c} hits={hitsOf(c)} onOpen={() => onOpen(c.id)} />
         ))}
       </div>
     </div>
   )
 }
 
-function ChartCard({ chart, onOpen }: { chart: Chart; onOpen: () => void }) {
+/**
+ * A search for codes: a whole code ("H2", "p01") finds that code, a series alone ("P") every code of
+ * it. Null when the text is not shaped like either (then it is only a name).
+ */
+function codeSearch(text: string): ((code: string) => boolean) | null {
+  const m = /^([A-Za-z]{1,2})0*(\d*)$/.exec(text)
+  if (!m) return null
+  const series = m[1].toUpperCase()
+  const code = series + m[2]
+  return m[2] ? (c) => c === code : (c) => /^[A-Z]+/.exec(c)?.[0] === series
+}
+
+function ChartCard({ chart, hits = [], onOpen }: { chart: Chart; hits?: [string, number][]; onOpen: () => void }) {
   const thumb = useBlobUrl(chart.thumb)
   const canvas = useRef<HTMLCanvasElement>(null)
   const [brokenThumb, setBrokenThumb] = useState('')
@@ -259,6 +275,14 @@ function ChartCard({ chart, onOpen }: { chart: Chart; onOpen: () => void }) {
         <span className="sub">
           {chart.cols}×{chart.rows} · {Object.keys(chart.counts).length} 色
         </span>
+        {hits.length > 0 && (
+          <span className="sub hits">
+            含 {hits
+              .sort((a, b) => codeOrder(a[0], b[0]))
+              .map(([code, n]) => `${code} ${n} 颗`)
+              .join('、')}
+          </span>
+        )}
       </span>
       <span className={`status ${chart.status}`}>{STATUS_LABEL[chart.status]}</span>
     </button>
