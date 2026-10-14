@@ -228,9 +228,14 @@ export function nameClasses(classes: PrintClass[], codes: string[], given: numbe
       G[a * C + b] = s
       G[b * C + a] = s
     }
+  // A code printed many times and not one cell of its own: the chart draws it in a colour
+  // nothing came near (clear beads drawn in the board's colour), so its colour says nothing here
+  // and only counts and print place it. Not a code printed a few times: some small class or other
+  // matches a small count by chance.
+  const unseen = want.map((n, k) => (n ?? 0) >= UNSEEN_COUNT && !fixed[k] && !given.includes(k))
   // how far each class is from each code's catalogue colour, as far as the chart's colours can be trusted
-  const known = codes.map((c) => CATALOGUE[c])
-  const nearestKnown = classes.map((c) => Math.min(...known.filter(Boolean).map((k) => colourDist(c.colour, k))))
+  const known = codes.map((c, k) => (unseen[k] ? undefined : CATALOGUE[c]))
+  const nearestKnown = classes.map((c) => Math.min(...known.filter((k): k is Rgb => !!k).map((k) => colourDist(c.colour, k))))
   const faithful = weightedMedian(nearestKnown, size) <= FAITHFUL
   // each code's colour on this chart: its own legend swatch where read surely, else the
   // catalogue's on a chart drawn in catalogue colours; null where neither can be trusted
@@ -328,7 +333,7 @@ export function nameClasses(classes: PrintClass[], codes: string[], given: numbe
       // two codes trading all their classes
       for (let a = 0; a < K; a++)
         for (let b = a + 1; b < K; b++) {
-          if (colourDist(colours[a], colours[b]) > TRADE_COLOUR) continue
+          if (!unseen[a] && !unseen[b] && colourDist(colours[a], colours[b]) > TRADE_COLOUR) continue
           const ma = members[a]
           const mb = members[b]
           const delta = codeCost(a, mb) + codeCost(b, ma) - costs[a] - costs[b] + tradeColour(a, b, ma, mb)
@@ -340,7 +345,7 @@ export function nameClasses(classes: PrintClass[], codes: string[], given: numbe
       // one class taking another code
       for (let j = 0; j < C; j++)
         for (let k = 0; k < K; k++) {
-          if (k === code[j] || colourDist(classes[j].colour, colours[k]) > TRADE_COLOUR) continue
+          if (k === code[j] || (!unseen[k] && colourDist(classes[j].colour, colours[k]) > TRADE_COLOUR)) continue
           const { delta, after } = moveDelta([j], k)
           if (delta < -1e-6) {
             apply(after)
@@ -375,6 +380,25 @@ export function nameClasses(classes: PrintClass[], codes: string[], given: numbe
   // A class is in doubt when another code would fit it nearly as well, or its code and another
   // nearly as well trading all their classes, the reluctance to move set aside: that is how
   // much the evidence itself prefers the names.
+  // An unseen code that took cells now has a colour on this chart: theirs. One that took none
+  // keeps the catalogue's, or every class would fit it nearly as well as its own.
+  for (let k = 0; k < K; k++) {
+    if (!unseen[k]) continue
+    const m = members[k]
+    const n = m.reduce((t, j) => t + size[j], 0)
+    const cat = CATALOGUE[codes[k]]
+    if (!n) {
+      if (cat) classes.forEach((c, j) => (stray[j][k] = (c.cells.length * Math.max(0, colourDist(c.colour, cat) - STRAY)) / COLOUR_SCALE))
+      continue
+    }
+    const own = { r: 0, g: 0, b: 0 }
+    for (const j of m) {
+      own.r += (classes[j].colour.r * size[j]) / n
+      own.g += (classes[j].colour.g * size[j]) / n
+      own.b += (classes[j].colour.b * size[j]) / n
+    }
+    classes.forEach((c, j) => (stray[j][k] = (c.cells.length * Math.min(colourDist(c.colour, own), COLOUR_CAP)) / COLOUR_SCALE))
+  }
   const plain = members.map((m, k) => codeCost(k, m, false))
   const doubt = code.map(() => false)
   for (let a = 0; a < K; a++)
@@ -401,6 +425,8 @@ export function nameClasses(classes: PrintClass[], codes: string[], given: numbe
 const NOT_BEAD = 0.8
 /** ...and it is at least this much less like print than its code's other classes */
 const LESS_LIKE = 0.15
+/** a code printed at least this many times with no cells of its colour is drawn in another colour */
+const UNSEEN_COUNT = 30
 /** another code costing less than this much more per cell leaves a class in doubt */
 const DOUBT = 0.3
 /** two codes trading all their cells for less than this much more per cell leaves both in doubt.

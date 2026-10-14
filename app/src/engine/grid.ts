@@ -94,21 +94,32 @@ export function findGrid(img: Raster, lo = 7, hi = 45): Grid {
     const estimate = (coarse.perX + coarse.perY) / 2 * f
     // Reduction can erase fine lines or push the true pitch below `lo`. Treat the
     // reduced result as a candidate: divisors must be checked on ORIGINAL pixels.
-    const candidates = []
+    const candidates: { grid: Grid; x: number; y: number; kx: number; ky: number }[] = []
     // Fine-fit error may put an exact `lo`-pixel grid just below the search bound.
     const minCandidate = lo - Math.max(0.08, lo * 0.0025)
     for (let divisor = 1; estimate / divisor >= minCandidate; divisor++) {
       const grid = refine(px, py, estimate / divisor)
-      candidates.push({ grid, x: support(px, grid.perX), y: support(py, grid.perY) })
+      candidates.push({ grid, x: support(px, grid.perX), y: support(py, grid.perY), kx: 0, ky: 0 })
+    }
+    const cx = coverage(img, 0)
+    const cy = coverage(img, 1)
+    for (const c of candidates) {
+      c.kx = crossing(cx, c.grid.perX).best
+      c.ky = crossing(cy, c.grid.perY).best
     }
     const maxX = Math.max(...candidates.map(c => c.x))
     const maxY = Math.max(...candidates.map(c => c.y))
+    const maxKX = Math.max(...candidates.map(c => c.kx))
+    const maxKY = Math.max(...candidates.map(c => c.ky))
     // Both axes need lines at most predicted positions. A half-period alternates
     // between lines and cell interiors, unlike a genuine finer grid.
+    // Bold every-5th lines can outweigh thin ones enough to fail that, so a pitch whose lines
+    // cross the chart almost as fully as the bold ones also counts (half a period does not: every
+    // other line of it is print, which covers only part of a row).
     const valid = maxX > 0 && maxY > 0
-      ? candidates.filter(c => c.x >= maxX * 0.75 && c.y >= maxY * 0.75)
+      ? candidates.filter(c => (c.x >= maxX * 0.75 && c.y >= maxY * 0.75) || (c.kx >= maxKX * THIN_CROSSES && c.ky >= maxKY * THIN_CROSSES && c.x >= maxX * THIN_SUPPORT && c.y >= maxY * THIN_SUPPORT))
       : []
-    return settle(img, (valid.at(-1) ?? candidates[0]).grid, px, py)
+    return settle(img, (valid.at(-1) ?? candidates[0]).grid, px, py, cx, cy)
   }
   const px = profile(img, 0)
   const py = profile(img, 1)
@@ -143,6 +154,11 @@ const STEP = 12
 const PHASE_WINS = 1.25
 /** ...and twice the cell size this much more, on both axes */
 const DOUBLE_WINS = 1.2
+/** on big images, a finer pitch with weaker lines is the cell size when its lines cross this share
+ *  of what the best pitch's do (thin lines between bold every-5th ones cross the whole chart too)... */
+const THIN_CROSSES = 0.9
+/** ...and its lines are still this strong, against the strongest pitch's */
+const THIN_SUPPORT = 0.5
 
 /** Share of each row (axis 1) or column (axis 0) of pixels where the image steps across it. A
  *  grid line crosses the whole chart; the print in a row of cells only covers part of it. */
@@ -171,9 +187,7 @@ function coverage(img: Raster, axis: 0 | 1): Float64Array {
  * columns: codes start and end at different x). Real lines cross the whole chart, print only part
  * of it, so the phase whose lines cross the most of the image wins when it clearly does.
  */
-function settle(img: Raster, grid: Grid, px: Float64Array, py: Float64Array): Grid {
-  const cx = coverage(img, 0)
-  const cy = coverage(img, 1)
+function settle(img: Raster, grid: Grid, px: Float64Array, py: Float64Array, cx = coverage(img, 0), cy = coverage(img, 1)): Grid {
   // White print in the middle of dark cells can pass for a line of its own, and half the cell
   // size then finds a line at every step. At the true size every line crosses the chart; at half
   // of it every other one is print.
