@@ -1011,7 +1011,17 @@ function AlignSheet({ img, grid: start, ext, onCancel, onDone }: { img: HTMLImag
       ctx.fillStyle = '#fff'
       ctx.fillRect(0, 0, c.width, c.height)
       ctx.imageSmoothingQuality = 'high'
-      ctx.drawImage(img, grid.offX + c0 * grid.perX, grid.offY + r0 * grid.perY, n * grid.perX, n * grid.perY, 0, 0, c.width, c.height)
+      // only the part inside the image: Safari stretches a source box that hangs off the image
+      // over the whole canvas instead of leaving the outside blank
+      const sx = grid.offX + c0 * grid.perX
+      const sy = grid.offY + r0 * grid.perY
+      const k = c.width / (n * grid.perX)
+      const kY = c.height / (n * grid.perY)
+      const x0 = Math.max(0, sx)
+      const y0 = Math.max(0, sy)
+      const x1 = Math.min(img.naturalWidth, sx + n * grid.perX)
+      const y1 = Math.min(img.naturalHeight, sy + n * grid.perY)
+      if (x1 > x0 && y1 > y0) ctx.drawImage(img, x0, y0, x1 - x0, y1 - y0, (x0 - sx) * k, (y0 - sy) * kY, (x1 - x0) * k, (y1 - y0) * kY)
       for (let k = 0; k <= n; k++) {
         const edgeX = c0 + k === ext.c0 || c0 + k === ext.c0 + ext.cols
         const edgeY = r0 + k === ext.r0 || r0 + k === ext.r0 + ext.rows
