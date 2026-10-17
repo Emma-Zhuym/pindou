@@ -188,6 +188,7 @@ export function paintChart(canvas: HTMLCanvasElement, o: PaintOptions) {
     for (let k = 0; k <= gh; k++) if (k % 5 === 0) mark(k, false, k % 10 === 0)
   }
   ctx.setLineDash([])
+  if (focus) outlineFocus(ctx, o, x0, y0)
   // The chart edge is useful only while placing it; the board edge remains visible.
   if (moving && board) {
     ctx.lineWidth = 2
@@ -209,6 +210,51 @@ export function paintChart(canvas: HTMLCanvasElement, o: PaintOptions) {
     for (let k = 5; k <= cols; k += 5) ctx.fillText(String(k), x0 + ((mirror ? cols - k : k - 1) + 0.5) * cell, m - cell * 0.8)
     for (let k = 5; k <= rows; k += 5) ctx.fillText(String(k), m - cell * 0.9, y0 + (k - 0.5) * cell)
   }
+}
+
+/**
+ * A dashed line round the focused code's cells, dark on a white halo: a pale code (a white, a
+ * clear) barely stands out from the faded rest by its colour alone. Only the edges between a
+ * focused cell and any other are drawn, joined into runs along each grid line so the dashes flow.
+ */
+function outlineFocus(ctx: CanvasRenderingContext2D, o: PaintOptions, x0: number, y0: number) {
+  const { cells, cols, rows, cell, focus, mirror = false } = o
+  const on = (r: number, c: number) => r >= 0 && c >= 0 && r < rows && c < cols && cells[r * cols + (mirror ? cols - 1 - c : c)] === focus
+  ctx.beginPath()
+  // horizontal edges on line k (between screen rows k-1 and k), then vertical ones
+  for (let k = 0; k <= rows; k++) {
+    let start = -1
+    for (let c = 0; c <= cols; c++) {
+      const edge = c < cols && on(k - 1, c) !== on(k, c)
+      if (edge && start < 0) start = c
+      if (!edge && start >= 0) {
+        ctx.moveTo(x0 + start * cell, y0 + k * cell)
+        ctx.lineTo(x0 + c * cell, y0 + k * cell)
+        start = -1
+      }
+    }
+  }
+  for (let k = 0; k <= cols; k++) {
+    let start = -1
+    for (let r = 0; r <= rows; r++) {
+      const edge = r < rows && on(r, k - 1) !== on(r, k)
+      if (edge && start < 0) start = r
+      if (!edge && start >= 0) {
+        ctx.moveTo(x0 + k * cell, y0 + start * cell)
+        ctx.lineTo(x0 + k * cell, y0 + r * cell)
+        start = -1
+      }
+    }
+  }
+  const width = Math.max(1.5, Math.min(2.5, cell / 8))
+  ctx.strokeStyle = 'rgba(255,255,255,0.95)'
+  ctx.lineWidth = width + 2
+  ctx.stroke()
+  ctx.setLineDash([Math.max(3, cell / 3), Math.max(2, cell / 4)])
+  ctx.strokeStyle = 'rgba(0,0,0,0.85)'
+  ctx.lineWidth = width
+  ctx.stroke()
+  ctx.setLineDash([])
 }
 
 /** One number on a ruler: its place along the ruler (CSS pixels from the chart's top or left
