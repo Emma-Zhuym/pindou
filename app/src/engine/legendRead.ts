@@ -279,10 +279,52 @@ export function readLocally(img: Raster, rec: Recognition, render: TextRenderer)
  * board's actual colours (k-means); finally codes of similar colour swap places whenever that
  * brings the cell counts closer to the printed ones.
  */
+/** a local group's cells within this share of a list code's count count as that code's */
+const PAIR_COUNT = 0.15
+/** ...and its colour no further than this from the code's catalogue colour (charts shade codes
+ *  their own way, but not into another colour) */
+const PAIR_COLOUR = 90
+/** a local reading with this many times more groups than the list has codes split colours up,
+ *  and its groups are no guide */
+const PAIR_GROUPS = 1.25
+
+/**
+ * The local reading finds this chart's colour groups well and can misread their names in an
+ * unusual font (G6 as G5, M13 as P22); the list has the names right. A local group whose name the
+ * list lacks is paired with a list code no local group named, when its cells number what the list
+ * prints for that code and its colour is near enough the code's (nearest count first, the same
+ * series breaking ties), and lends that code its colour. Without printed counts nothing is paired:
+ * a name alone is too weak.
+ */
+function pairMisread(local: Reading, list: LegendEntry[], seed: Map<string, Rgb>) {
+  if (local.groups.length > list.length * PAIR_GROUPS) return
+  const codes = new Set(list.map((e) => e.code))
+  const size = local.groups.map(() => 0)
+  for (const g of local.assign) if (g >= 0) size[g]++
+  const series = (c: string) => /^[A-Z]+/.exec(c)?.[0]
+  const pairs: { g: number; code: string; cost: number }[] = []
+  local.groups.forEach((g, k) => {
+    if (codes.has(g.code) || !size[k]) return
+    for (const e of list) {
+      const cat = CATALOGUE[e.code]
+      if (seed.has(e.code) || !e.count || (cat && Math.hypot(cat.r - g.colour.r, cat.g - g.colour.g, cat.b - g.colour.b) > PAIR_COLOUR)) continue
+      const off = Math.abs(size[k] - e.count) / Math.max(size[k], e.count)
+      if (off <= PAIR_COUNT) pairs.push({ g: k, code: e.code, cost: off + (series(g.code) === series(e.code) ? 0 : PAIR_COUNT) })
+    }
+  })
+  const used = new Set<number>()
+  for (const p of pairs.sort((a, b) => a.cost - b.cost)) {
+    if (used.has(p.g) || seed.has(p.code)) continue
+    used.add(p.g)
+    seed.set(p.code, local.groups[p.g].colour)
+  }
+}
+
 export function fitList(rec: Recognition, list: LegendEntry[], local?: Reading | null, render?: TextRenderer): Reading {
   const codes = list.map((e) => e.code)
   const seed = new Map<string, Rgb>()
   local?.groups.forEach((g) => seed.set(g.code, g.colour))
+  if (local) pairMisread(local, list, seed)
   // A swatch of this chart's own legend whose code was read surely: the colour this chart draws
   // that code in, better than the catalogue's (charts shade codes their own way)
   const sure = new Map<string, Rgb>()
