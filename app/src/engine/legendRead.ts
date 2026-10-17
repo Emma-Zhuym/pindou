@@ -25,6 +25,8 @@ export interface Reading {
   /** share of non-empty cells whose colour a group explains (within NEAR) */
   coverage: number
   swatches: LegendSwatch[]
+  /** per swatch: the code read beside it (local reading only) */
+  swatchCodes?: string[]
   /** counts read off the legend print, by code (local reading only; the AI list has its own) */
   printed?: Record<string, number>
   /** per cell: worth a second look (a list's reading; a local one judges by colour and names) */
@@ -270,7 +272,7 @@ export function readLocally(img: Raster, rec: Recognition, render: TextRenderer)
     const code = names[k].code
     if (n !== null && !(code in printed) && names.filter((x) => x.code === code).length === 1) printed[code] = n
   })
-  return { ...m, swatches: named, printed }
+  return { ...m, swatches: named, swatchCodes: names.map((n) => n.code), printed }
 }
 
 /**
@@ -279,6 +281,66 @@ export function readLocally(img: Raster, rec: Recognition, render: TextRenderer)
  * board's actual colours (k-means); finally codes of similar colour swap places whenever that
  * brings the cell counts closer to the printed ones.
  */
+/**
+ * The list comes in the order the legend prints it, and the swatches sit on the page in that
+ * order: read across the rows (or down the columns, whichever agrees with the list more). The
+ * swatches whose read name matches the list, in the list's order, are anchors; between two
+ * anchors, as many swatches as list entries are those entries one by one, whatever their names
+ * were misread as. A stretch where the numbers differ (a swatch not found) is left alone.
+ */
+function pairInOrder(local: Reading, list: LegendEntry[], seed: Map<string, Rgb>) {
+  const read = local.swatchCodes
+  if (!read || read.length !== local.swatches.length || local.swatches.length < 2) return
+  const sw = local.swatches.map((w, k) => ({ k, x: w.rect.x + w.rect.w / 2, y: w.rect.y + w.rect.h / 2, h: w.rect.h, w: w.rect.w }))
+  // one line of swatches: centres within half a swatch of each other across the other axis
+  const order = (across: boolean) => {
+    const pos = (w: (typeof sw)[0]) => (across ? w.y : w.x)
+    const span = (w: (typeof sw)[0]) => (across ? w.h : w.w)
+    const along = (w: (typeof sw)[0]) => (across ? w.x : w.y)
+    const lines: (typeof sw)[] = []
+    for (const w of [...sw].sort((a, b) => pos(a) - pos(b))) {
+      const line = lines.at(-1)
+      if (line && Math.abs(pos(w) - pos(line[0])) < span(line[0]) / 2) line.push(w)
+      else lines.push([w])
+    }
+    return lines.flatMap((line) => line.sort((a, b) => along(a) - along(b)).map((w) => w.k))
+  }
+  const index = new Map(list.map((e, i) => [e.code, i]))
+  // anchors: the longest run of swatches whose names are list codes in increasing list order
+  const anchorsOf = (seq: number[]) => {
+    const at = seq.map((k) => index.get(read[k]) ?? -1)
+    const best = at.map(() => 1)
+    const prev = at.map(() => -1)
+    for (let a = 0; a < at.length; a++) {
+      if (at[a] < 0) continue
+      for (let b = 0; b < a; b++)
+        if (at[b] >= 0 && at[b] < at[a] && best[b] + 1 > best[a]) {
+          best[a] = best[b] + 1
+          prev[a] = b
+        }
+    }
+    let end = -1
+    for (let a = 0; a < at.length; a++) if (at[a] >= 0 && (end < 0 || best[a] > best[end])) end = a
+    const out: [number, number][] = []
+    for (let a = end; a >= 0; a = prev[a]) out.unshift([a, at[a]])
+    return out
+  }
+  const tries = [order(true), order(false)].map((seq) => ({ seq, anchors: anchorsOf(seq) }))
+  const { seq, anchors } = tries.sort((a, b) => b.anchors.length - a.anchors.length)[0]
+  // too few names agree to trust the order at all
+  if (anchors.length < Math.max(2, list.length / 3)) return
+  const bounds: [number, number][] = [[-1, -1], ...anchors, [seq.length, list.length]]
+  for (let n = 1; n < bounds.length; n++) {
+    const [s0, l0] = bounds[n - 1]
+    const [s1, l1] = bounds[n]
+    if (s1 - s0 !== l1 - l0) continue
+    for (let d = 1; s0 + d < s1; d++) {
+      const code = list[l0 + d].code
+      if (!seed.has(code)) seed.set(code, local.swatches[seq[s0 + d]].colour)
+    }
+  }
+}
+
 /** a local group's cells within this share of a list code's count count as that code's */
 const PAIR_COUNT = 0.15
 /** ...and its colour no further than this from the code's catalogue colour (charts shade codes
@@ -324,7 +386,10 @@ export function fitList(rec: Recognition, list: LegendEntry[], local?: Reading |
   const codes = list.map((e) => e.code)
   const seed = new Map<string, Rgb>()
   local?.groups.forEach((g) => seed.set(g.code, g.colour))
-  if (local) pairMisread(local, list, seed)
+  if (local) {
+    pairInOrder(local, list, seed)
+    pairMisread(local, list, seed)
+  }
   // A swatch of this chart's own legend whose code was read surely: the colour this chart draws
   // that code in, better than the catalogue's (charts shade codes their own way)
   const sure = new Map<string, Rgb>()
