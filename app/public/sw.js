@@ -18,6 +18,8 @@ self.addEventListener('fetch', (e) => {
         }
         return res
       })
-      .catch(() => caches.match(req).then((hit) => hit ?? caches.match(self.registration.scope))),
+      .catch(() =>
+        caches.match(req).then((hit) => hit ?? (req.mode === 'navigate' ? caches.match(self.registration.scope) : Response.error())),
+      ),
   )
 })

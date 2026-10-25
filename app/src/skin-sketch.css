@@ -37,6 +37,7 @@
 [data-skin='sketch'] .toolbar .small.glass,
 [data-skin='sketch'] .chip {
   border-style: solid;
+  border-color: transparent; /* if the frame image is missing, no thick plain border shows */
   border-image: url('./paper/pencil.png') 48 / 10px / 0 stretch;
   background: transparent;
   box-shadow: none;
@@ -66,6 +67,7 @@
 [data-skin='sketch'] .toolbar .small.glass,
 [data-skin='sketch'] .chip {
   border-width: 6px;
+  border-color: transparent;
   border-image: url('./paper/pencil-small.png') 28 / 6px / 0 stretch;
 }
 /* the frame takes the place of the fill's padding, so they keep their usual height */
@@ -130,6 +132,7 @@
 [data-skin='sketch'] .beadtop {
   border-style: solid;
   border-width: 10px;
+  border-color: transparent; /* if the frame image is missing, no thick plain border shows */
   border-image: url('./paper/pencil.png') 48 / 10px / 0 stretch;
   /* the frame is drawn square: a rounded fill would show its corners past the pencil line */
   border-radius: 4px;
@@ -230,6 +233,7 @@
 [data-skin='sketch'] .iconbtn {
   border-style: solid;
   border-width: 6px;
+  border-color: transparent;
   border-image: url('./paper/pencil-small.png') 28 / 6px / 0 stretch;
   background: transparent;
   padding: 6px 2px 4px;

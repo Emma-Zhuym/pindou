@@ -47,6 +47,10 @@ export default defineConfig(({ command }) => ({
   // published at https://emma-zhuym.github.io/pindou/
   base: command === 'build' ? '/pindou/' : '/',
   plugins: [react(), xhsRelay(), devSamples()],
+  build: {
+    // the pencil frames travel inside the CSS: a border-image that fails to load shows a plain thick border
+    assetsInlineLimit: (file) => (/paper\/pencil(-small)?\.png$/.test(file) ? true : undefined),
+  },
   // reachable from a phone on the same network (http://<this Mac's address>:5173)
   server: { host: true },
 }))
