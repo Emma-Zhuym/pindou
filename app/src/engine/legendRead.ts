@@ -43,14 +43,19 @@ export interface LegendEntry {
 const NEAR = 30
 const PRINT_MIN_CELLS = 5 // a group this small is read too faintly to rename
 const PRINT_READ = 0.6 // a clear reading of a stacked label
-const PRINT_MARGIN = 0.03 // ...and this far ahead of the next code and of its current name
-const PRINT_COLOUR = 90 // ...naming a code whose catalogue colour is this near the cells (or nearer than the old name's)
+const PRINT_MARGIN = 0.06 // ...and this far ahead of the next code and of its current name
+const PRINT_COLOUR = 90 // the candidate must still fit the observed group colour
+const PRINT_COLOUR_MARGIN = 45 // ...the candidate colour must not be much farther than the current code's colour
 const TWIN = 12 // swatch colours this close are one printed colour: only the code tells them apart
 const LOOK_ALIKE = 60 // colours this much further than a cell's nearest still compete on the printed code
 const LOOK_COLOUR = 120 // colour distance worth one unit of label likeness
 const NO_CODE = 0.35 // below this likeness to every code, a cell prints none
 const TINTED_GAP = 0.05 // another code's print fitting this much better makes the colour suspect
-const TINTED_COLOUR = 500 // ...and then colour weighs this little
+const TINTED_COLOUR = 500 // kept after regression checks; the new colour gate decides when to use it
+const TINTED_WIDE_GAP = 0.12 // only a much clearer glyph may cross the wider colour gap below
+const TINTED_SIMILAR_COLOUR = 300 // a candidate within this colour gap may still be a tinted near-twin
+const TINTED_WIDE_COLOUR = 360 // only a clearly read glyph may cross this larger colour gap
+const TINTED_UNTRUSTED_COLOUR = 160 // if all colours are far away, the best candidate must still be plausible
 const MAX_SWATCHES = 120
 const dist = (r: number, g: number, b: number, c: Rgb) => Math.abs(r - c.r) + Math.abs(g - c.g) + Math.abs(b - c.b)
 
@@ -141,7 +146,16 @@ function refineByLabels(rec: Recognition, colours: Rgb[], assign: Int16Array, ex
       out[i] = bestLookAt
       continue
     }
-    const tinted = bestLook - own > TINTED_GAP
+    const labelGap = bestLook - own
+    const ownColour = cd(i, assign[i])
+    const bestColour = cd(i, bestLookAt)
+    const colourDelta = bestColour - ownColour
+    const colourIsSimilar = colourDelta <= TINTED_SIMILAR_COLOUR || (labelGap >= TINTED_WIDE_GAP && colourDelta <= TINTED_WIDE_COLOUR)
+    const colourIsUntrusted = nearest > 45 && bestColour <= TINTED_UNTRUSTED_COLOUR
+    const tinted = labelGap > TINTED_GAP && (colourIsSimilar || colourIsUntrusted)
+    // A weak glyph margin cannot make a clearly distant colour enter the all-labels pool. The
+    // 500 fallback itself is kept unchanged because lowering it regressed the dog/pool fixtures.
+    const colourWeight = tinted ? TINTED_COLOUR : LOOK_COLOUR
     const pool: number[] = []
     for (let g = 0; g < G; g++) if (looks[g] && (tinted || cd(i, g) < nearest + LOOK_ALIKE)) pool.push(g)
     // a near code without a learnt look cannot be compared fairly: leave the cell to colour
@@ -149,7 +163,7 @@ function refineByLabels(rec: Recognition, colours: Rgb[], assign: Int16Array, ex
     let best = assign[i]
     let top = -Infinity
     for (const g of pool) {
-      const sc = like(g) - cd(i, g) / (tinted ? TINTED_COLOUR : LOOK_COLOUR)
+      const sc = like(g) - cd(i, g) / colourWeight
       if (sc > top) {
         top = sc
         best = g
@@ -276,10 +290,9 @@ export function readLocally(img: Raster, rec: Recognition, render: TextRenderer)
 }
 
 /**
- * A legend list (codes, usually with counts) laid onto the board. Each code starts from the colour
- * of the local swatch carrying its name, else its catalogue colour; the colours then settle on the
- * board's actual colours (k-means); finally codes of similar colour swap places whenever that
- * brings the cell counts closer to the printed ones.
+ * Lay a legend onto the board: seed from same-chart swatches (catalogue fallback), settle the
+ * clusters on board colours, let clear cell labels plus compatible swatches resolve code names,
+ * then use printed counts only for unresolved near-twins. Per-cell labels refine the final result.
  */
 /**
  * The list comes in the order the legend prints it, and the swatches sit on the page in that
@@ -385,18 +398,18 @@ function pairMisread(local: Reading, list: LegendEntry[], seed: Map<string, Rgb>
 export function fitList(rec: Recognition, list: LegendEntry[], local?: Reading | null, render?: TextRenderer): Reading {
   const codes = list.map((e) => e.code)
   const seed = new Map<string, Rgb>()
-  local?.groups.forEach((g) => seed.set(g.code, g.colour))
+  // A swatch of this chart's own legend whose code was read surely: the colour this chart draws
+  // that code in, better than the catalogue's (charts shade codes their own way)
+  const chartColours = new Map<string, Rgb>()
+  local?.groups.forEach((g, i) => {
+    seed.set(g.code, g.colour)
+    if (!local.unsureName[i]) chartColours.set(g.code, g.colour)
+  })
   if (local) {
     pairInOrder(local, list, seed)
     pairMisread(local, list, seed)
   }
-  // A swatch of this chart's own legend whose code was read surely: the colour this chart draws
-  // that code in, better than the catalogue's (charts shade codes their own way)
-  const sure = new Map<string, Rgb>()
-  local?.groups.forEach((g, k) => {
-    if (!local.unsureName[k]) sure.set(g.code, g.colour)
-  })
-  const swatch = codes.map((c) => sure.get(c) ?? null)
+  const swatch = codes.map((c) => chartColours.get(c) ?? null)
   let centres: Rgb[] = codes.map((c) => seed.get(c) ?? CATALOGUE[c] ?? { r: 128, g: 128, b: 128 })
   const { fill } = rec.cells
   let assign = nearest(rec, centres).assign
@@ -412,6 +425,17 @@ export function fitList(rec: Recognition, list: LegendEntry[], local?: Reading |
     // a code with no cells keeps its seed (it may be a colour the chart barely uses)
     centres = centres.map((c, g) => (sum[g][3] ? { r: sum[g][0] / sum[g][3], g: sum[g][1] / sum[g][3], b: sum[g][2] / sum[g][3] } : c))
     assign = nearest(rec, centres).assign
+  }
+
+  // Read the board's stacked code labels before printed counts can swap two colour groups.
+  const glyphLocks = new Set<string>()
+  if (render) {
+    const printed = nameByPrint(rec, codes, centres, assign, makeReader(render, rec.fit), chartColours)
+    if (printed) {
+      assign = printed.assign
+      printed.lockedCodes.forEach((code) => glyphLocks.add(code))
+      centres = codes.map((_, k) => meanFill(rec, assign, k) ?? centres[k])
+    }
   }
 
   // printed counts settle look-alike colours
@@ -431,6 +455,7 @@ export function fitList(rec: Recognition, list: LegendEntry[], local?: Reading |
       improved = false
       for (let a = 0; a < codes.length; a++) {
         for (let b = a + 1; b < codes.length; b++) {
+          if (glyphLocks.has(codes[a]) || glyphLocks.has(codes[b])) continue
           const ca = centres[order[a]]
           const cb = centres[order[b]]
           if (dist(ca.r, ca.g, ca.b, cb) > 120) continue
@@ -447,11 +472,11 @@ export function fitList(rec: Recognition, list: LegendEntry[], local?: Reading |
     assign = assign.map((g) => (g < 0 ? -1 : codeOf[g]))
     centres = codes.map((_, k) => centres[order[k]])
   }
-  // the print on the cells has the last word on names: colours and counts only guessed
+  // Clear board text can settle a name only when its same-chart swatch colour is compatible.
   if (render) {
-    const named = nameByPrint(rec, codes, centres, assign, makeReader(render, rec.fit))
+    const named = nameByPrint(rec, codes, centres, assign, makeReader(render, rec.fit), chartColours)
     if (named) {
-      assign = named
+      assign = named.assign
       centres = codes.map((_, k) => meanFill(rec, assign, k) ?? centres[k])
     }
   }
@@ -504,10 +529,24 @@ function classesNamed(rec: Recognition, codes: string[], want: (number | undefin
  * Each group's cells stacked and read: where the print reads clearly as another code of the list,
  * the group takes that name (two groups reading the same code become one). Colour and printed
  * counts cannot tell pale or dark look-alikes apart (H10, A23 and G18 all near white); the code
- * printed in every cell can. Only a code whose colour fits the cells is taken: small print misreads
- * land on codes of any colour. Null when nothing changes.
+ * printed in every cell can. A code needs both a clear label reading and compatible same-chart
+ * swatch colour (catalogue colour is the fallback); small-print misreads cannot rename a group.
+ * Null when nothing changes.
  */
-function nameByPrint(rec: Recognition, codes: string[], centres: Rgb[], assign: Int16Array, reader: Reader): Int16Array | null {
+interface PrintNameEvidence {
+  assign: Int16Array
+  lockedCodes: Set<string>
+  conflictedCodes: Set<string>
+}
+
+function nameByPrint(
+  rec: Recognition,
+  codes: string[],
+  centres: Rgb[],
+  assign: Int16Array,
+  reader: Reader,
+  chartColours: Map<string, Rgb>,
+): PrintNameEvidence | null {
   const { share } = rec.cells
   const members: number[][] = codes.map(() => [])
   assign.forEach((g, i) => {
@@ -515,6 +554,8 @@ function nameByPrint(rec: Recognition, codes: string[], centres: Rgb[], assign: 
   })
   const idx = codes.map((c) => CODES.indexOf(c))
   const target = codes.map((_, k) => k)
+  const lockedCodes = new Set<string>()
+  const conflictedCodes = new Set<string>()
   let changed = false
   codes.forEach((_, k) => {
     if (members[k].length < PRINT_MIN_CELLS) return
@@ -526,16 +567,32 @@ function nameByPrint(rec: Recognition, codes: string[], centres: Rgb[], assign: 
     for (let j = 1; j < sc.length; j++) if (sc[j] > sc[best]) best = j
     let second = -Infinity
     for (let j = 0; j < sc.length; j++) if (j !== best) second = Math.max(second, sc[j])
-    // a misreading of small print lands on codes of any colour; the right code looks like its cells
+    if (sc[best] < PRINT_READ || sc[best] - second < PRINT_MARGIN) return
+    // Prefer the same chart's swatch colour; use the catalogue only when no confident swatch exists.
     const c = centres[k]
-    const off = (code: string) => (CATALOGUE[code] ? dist(c.r, c.g, c.b, CATALOGUE[code]) : Infinity)
-    const plausible = off(codes[best]) <= Math.max(PRINT_COLOUR, off(codes[k]))
-    if (best !== k && plausible && sc[best] >= PRINT_READ && sc[best] - second >= PRINT_MARGIN && sc[best] - sc[k] >= PRINT_MARGIN) {
+    const colour = (code: string) => chartColours.get(code) ?? CATALOGUE[code]
+    const candidate = colour(codes[best])
+    const old = colour(codes[k])
+    const candidateOff = candidate ? dist(c.r, c.g, c.b, candidate) : Infinity
+    const oldOff = old ? dist(c.r, c.g, c.b, old) : Infinity
+    const plausible = candidateOff <= Math.min(PRINT_COLOUR, oldOff + PRINT_COLOUR_MARGIN)
+    if (best === k) {
+      if (plausible) lockedCodes.add(codes[k])
+      else conflictedCodes.add(codes[k])
+      return
+    }
+    if (plausible && sc[best] - sc[k] >= PRINT_MARGIN) {
+      lockedCodes.add(codes[k])
+      lockedCodes.add(codes[best])
       target[k] = best
       changed = true
+    } else {
+      conflictedCodes.add(codes[k])
+      conflictedCodes.add(codes[best])
     }
   })
-  return changed ? assign.map((g) => (g < 0 ? -1 : target[g])) : null
+  if (!changed && !lockedCodes.size) return null
+  return { assign: changed ? assign.map((g) => (g < 0 ? -1 : target[g])) : Int16Array.from(assign), lockedCodes, conflictedCodes }
 }
 
 /** the mean fill of the cells given code k, or null if none */
