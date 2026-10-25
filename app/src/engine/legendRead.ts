@@ -43,7 +43,7 @@ export interface LegendEntry {
 const NEAR = 30
 const PRINT_MIN_CELLS = 5 // a group this small is read too faintly to rename
 const PRINT_READ = 0.6 // a clear reading of a stacked label
-const PRINT_MARGIN = 0.06 // ...and this far ahead of the next code and of its current name
+const PRINT_MARGIN = 0.04 // ...and this far ahead of the next code and of its current name
 const PRINT_COLOUR = 90 // the candidate must still fit the observed group colour
 const PRINT_COLOUR_MARGIN = 45 // ...the candidate colour must not be much farther than the current code's colour
 const TWIN = 12 // swatch colours this close are one printed colour: only the code tells them apart
@@ -57,6 +57,8 @@ const TINTED_SIMILAR_COLOUR = 300 // a candidate within this colour gap may stil
 const TINTED_WIDE_COLOUR = 360 // only a clearly read glyph may cross this larger colour gap
 const TINTED_UNTRUSTED_COLOUR = 160 // if all colours are far away, the best candidate must still be plausible
 const MAX_SWATCHES = 120
+const STRAY_WANT = 30 // a code printed this many times...
+const STRAY_SHARE = 0.1 // ...with fewer than this share of that many cells holds strays only
 const dist = (r: number, g: number, b: number, c: Rgb) => Math.abs(r - c.r) + Math.abs(g - c.g) + Math.abs(b - c.b)
 
 /** nearest colour per non-empty cell, and the share that is within NEAR */
@@ -427,17 +429,6 @@ export function fitList(rec: Recognition, list: LegendEntry[], local?: Reading |
     assign = nearest(rec, centres).assign
   }
 
-  // Read the board's stacked code labels before printed counts can swap two colour groups.
-  const glyphLocks = new Set<string>()
-  if (render) {
-    const printed = nameByPrint(rec, codes, centres, assign, makeReader(render, rec.fit), chartColours)
-    if (printed) {
-      assign = printed.assign
-      printed.lockedCodes.forEach((code) => glyphLocks.add(code))
-      centres = codes.map((_, k) => meanFill(rec, assign, k) ?? centres[k])
-    }
-  }
-
   // printed counts settle look-alike colours
   const want = list.map((e) => e.count)
   if (want.some((n) => n !== undefined)) {
@@ -455,7 +446,6 @@ export function fitList(rec: Recognition, list: LegendEntry[], local?: Reading |
       improved = false
       for (let a = 0; a < codes.length; a++) {
         for (let b = a + 1; b < codes.length; b++) {
-          if (glyphLocks.has(codes[a]) || glyphLocks.has(codes[b])) continue
           const ca = centres[order[a]]
           const cb = centres[order[b]]
           if (dist(ca.r, ca.g, ca.b, cb) > 120) continue
@@ -476,17 +466,46 @@ export function fitList(rec: Recognition, list: LegendEntry[], local?: Reading |
   if (render) {
     const named = nameByPrint(rec, codes, centres, assign, makeReader(render, rec.fit), chartColours)
     if (named) {
-      assign = named.assign
+      assign = named
       centres = codes.map((_, k) => meanFill(rec, assign, k) ?? centres[k])
     }
   }
   assign = refineByLabels(rec, centres, assign)
   const coverage = nearest(rec, centres).coverage
+  assign = dissolveStrays(rec, assign, centres, want)
   const { assign: byPrint, doubt, classes } = classesNamed(rec, codes, want, centres, assign, swatch)
   assign = byPrint
   centres = codes.map((_, k) => meanFill(rec, assign, k) ?? centres[k])
   // the names came from the list: none is a guess
   return { groups: groupsFrom(rec, codes, centres, assign), assign, coverage, unsureName: codes.map(() => false), swatches: local?.swatches ?? [], doubt, classes }
+}
+
+/**
+ * A code printed many times that has only a handful of cells holds strays, not its own beads (its
+ * real cells went to a look-alike colour). Left in, those few cells make the code look seen and
+ * skew its colour in classesNamed; they go to the nearest other code instead, so the code counts as
+ * unseen and is placed by print and count alone.
+ */
+function dissolveStrays(rec: Recognition, assign: Int16Array, centres: Rgb[], want: (number | undefined)[]): Int16Array {
+  const have = centres.map(() => 0)
+  assign.forEach((g) => g >= 0 && have[g]++)
+  const gone = want.map((n, k) => (n ?? 0) >= STRAY_WANT && have[k] < STRAY_SHARE * n!)
+  if (!gone.some(Boolean)) return assign
+  const { fill } = rec.cells
+  return assign.map((g, i) => {
+    if (g < 0 || !gone[g]) return g
+    let best = -1
+    let bd = Infinity
+    centres.forEach((c, k) => {
+      if (gone[k]) return
+      const d = dist(fill[i * 3], fill[i * 3 + 1], fill[i * 3 + 2], c)
+      if (d < bd) {
+        bd = d
+        best = k
+      }
+    })
+    return best
+  })
 }
 
 /**
@@ -533,12 +552,6 @@ function classesNamed(rec: Recognition, codes: string[], want: (number | undefin
  * swatch colour (catalogue colour is the fallback); small-print misreads cannot rename a group.
  * Null when nothing changes.
  */
-interface PrintNameEvidence {
-  assign: Int16Array
-  lockedCodes: Set<string>
-  conflictedCodes: Set<string>
-}
-
 function nameByPrint(
   rec: Recognition,
   codes: string[],
@@ -546,7 +559,7 @@ function nameByPrint(
   assign: Int16Array,
   reader: Reader,
   chartColours: Map<string, Rgb>,
-): PrintNameEvidence | null {
+): Int16Array | null {
   const { share } = rec.cells
   const members: number[][] = codes.map(() => [])
   assign.forEach((g, i) => {
@@ -554,8 +567,6 @@ function nameByPrint(
   })
   const idx = codes.map((c) => CODES.indexOf(c))
   const target = codes.map((_, k) => k)
-  const lockedCodes = new Set<string>()
-  const conflictedCodes = new Set<string>()
   let changed = false
   codes.forEach((_, k) => {
     if (members[k].length < PRINT_MIN_CELLS) return
@@ -576,23 +587,11 @@ function nameByPrint(
     const candidateOff = candidate ? dist(c.r, c.g, c.b, candidate) : Infinity
     const oldOff = old ? dist(c.r, c.g, c.b, old) : Infinity
     const plausible = candidateOff <= Math.min(PRINT_COLOUR, oldOff + PRINT_COLOUR_MARGIN)
-    if (best === k) {
-      if (plausible) lockedCodes.add(codes[k])
-      else conflictedCodes.add(codes[k])
-      return
-    }
-    if (plausible && sc[best] - sc[k] >= PRINT_MARGIN) {
-      lockedCodes.add(codes[k])
-      lockedCodes.add(codes[best])
-      target[k] = best
-      changed = true
-    } else {
-      conflictedCodes.add(codes[k])
-      conflictedCodes.add(codes[best])
-    }
+    if (best === k || !plausible || sc[best] - sc[k] < PRINT_MARGIN) return
+    target[k] = best
+    changed = true
   })
-  if (!changed && !lockedCodes.size) return null
-  return { assign: changed ? assign.map((g) => (g < 0 ? -1 : target[g])) : Int16Array.from(assign), lockedCodes, conflictedCodes }
+  return changed ? assign.map((g) => (g < 0 ? -1 : target[g])) : null
 }
 
 /** the mean fill of the cells given code k, or null if none */
