@@ -6,6 +6,8 @@
 
 **在线使用：https://emma-zhuym.github.io/pindou/**
 
+第一次用可以先看 **[新手指导](https://emma-zhuym.github.io/pindou/guide.html)**。
+
 这是一个网页 App（PWA），手机和电脑都能用。在 iPhone 上用 Safari 打开，点分享 →"添加到主屏幕"，用起来和普通 App 一样，没网时也能打开。
 
 ## 功能

@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>拼豆图纸 · 新手指导</title>
+<meta name="description" content="拼豆图纸 App 怎么用：导入图纸、核对识别结果、拼豆模式、编辑、库存和 AI 读图例。">
+<link rel="icon" href="favicon.png">
+<style>
+  :root {
+    --bg: #f3f0ea;
+    --paper: #fbf9f5;
+    --ink: #3a2f27;
+    --sub: #85776a;
+    --line: rgba(58, 47, 39, 0.14);
+    --soft: rgba(58, 47, 39, 0.05);
+    --accent: #a8743a;
+    --accent-ink: #fff;
+    --tip: rgba(168, 116, 58, 0.09);
+    --serif: "Songti SC", "Noto Serif SC", "Source Han Serif SC", STSong, serif;
+    --sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #1c1916;
+      --paper: #24201c;
+      --ink: #ece4d8;
+      --sub: #a89a8a;
+      --line: rgba(236, 228, 216, 0.14);
+      --soft: rgba(236, 228, 216, 0.05);
+      --accent: #d3a46c;
+      --accent-ink: #1c1916;
+      --tip: rgba(211, 164, 108, 0.1);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #1c1916; --paper: #24201c; --ink: #ece4d8; --sub: #a89a8a;
+    --line: rgba(236, 228, 216, 0.14); --soft: rgba(236, 228, 216, 0.05);
+    --accent: #d3a46c; --accent-ink: #1c1916; --tip: rgba(211, 164, 108, 0.1);
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.75 var(--sans);
+  }
+  main { max-width: 680px; margin: 0 auto; padding: 0 16px 80px; }
+  a { color: var(--accent); text-underline-offset: 3px; }
+
+  /* the opening: a little bead heart, the name, one line */
+  header.hero { padding: 56px 0 28px; text-align: center; }
+  .hero svg { width: 112px; height: auto; display: block; margin: 0 auto 20px; }
+  h1 { font: 600 34px/1.25 var(--serif); margin: 0 0 10px; letter-spacing: 0.02em; }
+  .lede { margin: 0 auto; max-width: 30em; color: var(--sub); }
+  .actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 24px; }
+  .btn {
+    display: inline-block; padding: 10px 22px; border-radius: 999px;
+    background: var(--accent); color: var(--accent-ink); font-weight: 600; text-decoration: none;
+  }
+  .btn.quiet { background: transparent; color: var(--ink); border: 1px solid var(--line); font-weight: 500; }
+
+  /* contents */
+  nav.toc {
+    margin: 12px 0 8px; padding: 16px 20px; border: 1px solid var(--line); border-radius: 18px;
+    background: var(--paper);
+  }
+  nav.toc ol { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 16px; counter-reset: toc; }
+  nav.toc li { counter-increment: toc; }
+  nav.toc a { color: var(--ink); text-decoration: none; display: block; padding: 2px 0; line-height: 1.6; }
+  nav.toc a::before { content: counter(toc) "  "; color: var(--accent); font-family: var(--serif); font-weight: 600; }
+  nav.toc a:hover { color: var(--accent); }
+
+  /* sections: a numbered title over a thin rule */
+  section { padding-top: 44px; }
+  h2 {
+    font: 600 23px/1.35 var(--serif); margin: 0 0 14px; padding-bottom: 10px;
+    border-bottom: 1px solid var(--line); display: flex; align-items: baseline; gap: 12px;
+  }
+  h2 .no { color: var(--accent); font-size: 15px; letter-spacing: 0.08em; }
+  h3 { font: 600 17px/1.5 var(--serif); margin: 22px 0 6px; }
+  p { margin: 0 0 12px; }
+  ul, ol { margin: 0 0 12px; padding-left: 1.3em; }
+  li { margin: 3px 0; }
+  .ui { /* a button or tab name as the app shows it */
+    font-size: 0.92em; padding: 1px 7px; border-radius: 6px; background: var(--soft);
+    border: 1px solid var(--line);
+  }
+  .tip { background: var(--tip); border-radius: 14px; padding: 12px 16px; margin: 14px 0; }
+  .tip b { color: var(--accent); }
+
+  /* the four checking steps, each a card */
+  .steps { display: grid; gap: 12px; margin: 16px 0; }
+  .step {
+    display: grid; grid-template-columns: 44px 1fr; gap: 4px 14px; align-items: start;
+    padding: 16px 18px; border: 1px solid var(--line); border-radius: 18px; background: var(--paper);
+  }
+  .step > :not(.n) { grid-column: 2; }
+  .step .n {
+    grid-row: 1 / span 3;
+    width: 36px; height: 36px; border-radius: 50%; border: 1.5px solid var(--accent); color: var(--accent);
+    display: grid; place-items: center; font: 600 16px var(--serif);
+  }
+  .step h3 { margin: 4px 0 4px; }
+  .step p { margin: 0; color: var(--ink); }
+  .step .more { color: var(--sub); font-size: 15px; margin-top: 4px; }
+
+  /* AI services, side by side */
+  .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 14px 0; }
+  .svc { border: 1px solid var(--line); border-radius: 16px; padding: 14px; background: var(--paper); font-size: 15px; }
+  .svc b { display: block; font-family: var(--serif); font-size: 16px; margin-bottom: 4px; }
+  .svc span { color: var(--sub); }
+
+  details { border-top: 1px solid var(--line); padding: 12px 0; }
+  details:last-of-type { border-bottom: 1px solid var(--line); }
+  summary { cursor: pointer; font-weight: 600; list-style: none; display: flex; justify-content: space-between; gap: 12px; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "+"; color: var(--accent); font-weight: 400; }
+  details[open] summary::after { content: "−"; }
+  details p { margin: 8px 0 0; color: var(--sub); }
+
+  footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--sub); font-size: 14px; text-align: center; }
+
+  @media (max-width: 520px) {
+    h1 { font-size: 28px; }
+    .grid3 { grid-template-columns: 1fr; }
+    .step { grid-template-columns: 36px 1fr; padding: 14px; }
+    .step .n { width: 30px; height: 30px; font-size: 14px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header class="hero">
+    <!-- a bead heart on a pegboard: filled beads in three colours, empty pegs as faint rings -->
+    <svg viewBox="0 0 112 102" role="img" aria-label="拼豆拼成的爱心">
+      <g id="beads"></g>
+    </svg>
+    <h1>拼豆图纸</h1>
+    <p class="lede">把小红书上的拼豆图纸变成能直接拿来拼的数字图纸：认格子、认色号、拼的时候帮你看线，库存和补货也一起管。</p>
+    <div class="actions">
+      <a class="btn" href="./">打开 App</a>
+      <a class="btn quiet" href="https://github.com/Emma-Zhuym/pindou">看源代码</a>
+    </div>
+  </header>
+
+  <nav class="toc" aria-label="目录">
+    <ol>
+      <li><a href="#install">装到手机上</a></li>
+      <li><a href="#import">导入一张图纸</a></li>
+      <li><a href="#check">四步核对</a></li>
+      <li><a href="#bead">开始拼</a></li>
+      <li><a href="#edit">改图纸</a></li>
+      <li><a href="#stock">库存和补货</a></li>
+      <li><a href="#ai">AI 读图例</a></li>
+      <li><a href="#data">数据存在哪</a></li>
+    </ol>
+  </nav>
+
+  <section id="install">
+    <h2><span class="no">01</span>装到手机上</h2>
+    <p>它是一个网页 App，不用去应用商店下载。</p>
+    <ul>
+      <li><b>iPhone</b>：用 Safari 打开 App，点底部的分享按钮 → <span class="ui">添加到主屏幕</span>。之后从桌面图标打开，和普通 App 一样，没网也能用。</li>
+      <li><b>安卓</b>：用 Chrome 打开，菜单里选 <span class="ui">添加到主屏幕</span> 或 <span class="ui">安装应用</span>。</li>
+      <li><b>电脑</b>：直接在浏览器里用，图片可以拖进来。</li>
+    </ul>
+    <div class="tip"><b>建议一定加到主屏幕。</b>不加的话，Safari 可能在你 7 天没打开后清掉网站数据，图纸就没了。</div>
+  </section>
+
+  <section id="import">
+    <h2><span class="no">02</span>导入一张图纸</h2>
+    <p>点右下角的 <span class="ui">＋</span>，三种来源任选：</p>
+    <ul>
+      <li><b>图片</b>：选相册里的图纸截图或原图，电脑上也可以拖进来、直接粘贴。原图越清楚，认得越准。</li>
+      <li><b>小红书链接</b>（iPhone）：装一次「拼豆读笔记」快捷指令，在小红书复制笔记链接，回 App 按提示点两下，就能列出笔记里所有图，挑图纸那张。安装方法见<a href="https://github.com/Emma-Zhuym/pindou/blob/main/SHORTCUT.md">这里</a>。</li>
+      <li><b>没印色号的像素画</b>：点 <span class="ui">没有印色号的像素画？按颜色转成图纸</span>，框好画、填行列数，每格自动配最接近的 MARD 色号，还能限制最多用几种颜色。</li>
+    </ul>
+  </section>
+
+  <section id="check">
+    <h2><span class="no">03</span>四步核对</h2>
+    <p>程序认完后会带你走四步，每一步都可以动手改，后面的步骤会以你改过的为准。觉得没问题就点底部的按钮往下走，不用一路滑到底。</p>
+    <div class="steps">
+      <div class="step">
+        <span class="n">1</span>
+        <h3>网格</h3>
+        <p>蓝框是程序找到的图纸范围，四周的空白会自动去掉。和图上印的行列数对一下，不对就<b>按住蓝框的边拖</b>，一次挪一格。</p>
+        <p class="more">如果粉色格线没压在图纸的线上（大图偶尔会差半格），点 <span class="ui">对齐格线</span>，在放大的两个角上用手指拖动图片对齐。</p>
+      </div>
+      <div class="step">
+        <span class="n">2</span>
+        <h3>色号</h3>
+        <p>确认这张图用了哪些色号、各多少颗。设置了 AI 的话点 <span class="ui">读图例</span> 自动读；没设置就对着图例自己填。</p>
+        <p class="more">这一步最关键：色号和颗数对了，后面每一格基本就不会错。整组认反了（比如两个颜色名字对调），在这里交换整组就行。</p>
+      </div>
+      <div class="step">
+        <span class="n">3</span>
+        <h3>格子</h3>
+        <p>同一个色号的格子摆在一起成一面墙，混进去的别的颜色一眼就能看出来，点一下就能改。</p>
+        <p class="more">程序没把握的格子会标出来；设置了 AI 的话，也可以让 AI 再核对一遍。</p>
+      </div>
+      <div class="step">
+        <span class="n">4</span>
+        <h3>对比</h3>
+        <p>把认出来的颗数和图例上印的逐色对账，多了少了都会标出来。没有提示就可以放心保存。</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="bead">
+    <h2><span class="no">04</span>开始拼</h2>
+    <p>打开一张图纸，点右上角的拼豆按钮进入拼豆模式：</p>
+    <ul>
+      <li>选 52、78 或 104 的豆板，5 格虚线、10 格实线的辅助线画在豆板上，图案可以在板上挪位置。</li>
+      <li>点底部的色号只看这一种颜色，其他颜色变淡，选中的格子外面还有一圈虚线，白色、透明这种浅色也找得到。</li>
+      <li>一种颜色拼完就勾掉；可以计时，也可以一键标记整张拼完。</li>
+      <li>要熨烫背面就打开 <span class="ui">镜像</span>。</li>
+    </ul>
+  </section>
+
+  <section id="edit">
+    <h2><span class="no">05</span>改图纸</h2>
+    <p>图纸详情页点 <span class="ui">编辑</span>：</p>
+    <ul>
+      <li><b>画笔、橡皮</b>：可以一次涂 1 格、2×2、3×3 或 5×5。</li>
+      <li><b>吸管</b>：点一格取它的颜色。<b>批量换色</b>：把一种颜色全部换成另一种，或者两色互换。</li>
+      <li><b>裁剪</b>：拖蓝框的边裁掉不要的部分，<span class="ui">去掉空白</span> 一点就缩到刚好包住豆子。</li>
+      <li><b>对比原版 / 还原</b>：随时看识别时的样子，或者一键改回去。</li>
+      <li>撤销、重做在右下角，裁剪也能撤销。</li>
+    </ul>
+  </section>
+
+  <section id="stock">
+    <h2><span class="no">06</span>库存和补货</h2>
+    <ul>
+      <li><b>补货</b>：可以按色号、多色同量（选一堆色号，每个都加同样克数）、整套，或者从表格导入。1 克大约 100 颗。</li>
+      <li><b>扣库存</b>：图纸标成「已拼」时自动扣掉用量，改回来可以退回。</li>
+      <li><b>预计消耗</b>：挑几张想拼的图纸，算出够不够，缺的生成补豆清单，复制后可以直接贴进 Excel。</li>
+      <li><b>找图纸</b>：图纸库的搜索框能搜名字，也能搜色号，比如搜 <span class="ui">P</span> 就列出所有用到 P 系列的图纸。</li>
+      <li><b>统计</b>：拼过多少颗、用了多久、每月记录、最常用的颜色。</li>
+    </ul>
+  </section>
+
+  <section id="ai">
+    <h2><span class="no">07</span>让 AI 读图例（可选）</h2>
+    <p>不设置也完全能用。设置以后，第二步的色号和颗数由 AI 读，省得自己填。AI 只看图例那一小块截图，格子还是在你手机上算的。</p>
+    <p>在 <span class="ui">设置 → AI 读图例</span> 选一家，按页面上的几步去拿一个 API Key 粘进去，点 <span class="ui">检查</span> 就好：</p>
+    <div class="grid3">
+      <div class="svc"><b>硅基流动</b><span>国内推荐，手机号注册，读一张图例一两分钱。</span></div>
+      <div class="svc"><b>阿里云百炼</b><span>国内可用，新用户一般有免费额度。</span></div>
+      <div class="svc"><b>OpenRouter</b><span>要能上外网，有免费模型，充值只收外币卡。</span></div>
+    </div>
+    <div class="tip"><b>Key 相当于你的门禁卡</b>，只存在你自己手机的浏览器里。别发给别人，也别截图发帖。</div>
+  </section>
+
+  <section id="data">
+    <h2><span class="no">08</span>数据存在哪</h2>
+    <p>图纸、库存、进度全都存在你自己设备的浏览器里，不上传到任何服务器，也不用注册账号。所以：</p>
+    <ul>
+      <li>换手机或者清浏览器数据之前，到 <span class="ui">设置 → 数据</span> 点 <span class="ui">导出备份</span>，存一个文件，新手机上 <span class="ui">从备份恢复</span>。</li>
+      <li>屏幕上的颜色只是近似，以实物豆子为准。</li>
+    </ul>
+
+    <h3>常见问题</h3>
+    <details>
+      <summary>格子数和图上印的对不上？</summary>
+      <p>第一步拖蓝框的边改范围；格线整体偏了半格就用「对齐格线」。</p>
+    </details>
+    <details>
+      <summary>两个颜色整组认反了？</summary>
+      <p>在第二步交换这两组的名字，后面的步骤会跟着改，不用一格一格改。</p>
+    </details>
+    <details>
+      <summary>图纸的背景是灰白小方格，被认成了豆子？</summary>
+      <p>大多数会自动排除；没排除干净的话，在第三步把那一堆格子改成空格，或者保存后用编辑里的批量换色、橡皮处理。</p>
+    </details>
+    <details>
+      <summary>AI 一直转圈不出结果？</summary>
+      <p>90 秒没回话会自动停下并提示。可以在设置里换一个模型，名字带 Instruct 的不会长时间思考，会快很多。人在海外连国内的服务也会慢一些。</p>
+    </details>
+  </section>
+
+  <footer>
+    个人做的小工具，随缘更新 · 源代码 <a href="https://github.com/Emma-Zhuym/pindou">github.com/Emma-Zhuym/pindou</a>（AGPL-3.0）
+  </footer>
+</main>
+<script>
+  // the bead heart: 1 = dark red outline, 2 = red, 3 = pale highlight, 0 = empty peg
+  const heart = [
+    '00111011100',
+    '01222122210',
+    '12332222221',
+    '12322222221',
+    '12222222221',
+    '01222222210',
+    '00122222100',
+    '00012221000',
+    '00001210000',
+    '00000100000',
+  ]
+  const fill = { 1: '#a63d33', 2: '#dc6a59', 3: '#f6c9bc' }
+  const g = document.getElementById('beads')
+  const ns = 'http://www.w3.org/2000/svg'
+  heart.forEach((row, y) => [...row].forEach((v, x) => {
+    const c = document.createElementNS(ns, 'circle')
+    c.setAttribute('cx', 6 + x * 10)
+    c.setAttribute('cy', 6 + y * 10)
+    if (v === '0') {
+      c.setAttribute('r', 1.6)
+      c.setAttribute('fill', 'currentColor')
+      c.setAttribute('opacity', 0.18)
+    } else {
+      c.setAttribute('r', 4.3)
+      c.setAttribute('fill', fill[v])
+      c.setAttribute('stroke', 'rgba(0,0,0,0.12)')
+      c.setAttribute('stroke-width', 0.6)
+      // the hole in the middle of a bead
+      const hole = document.createElementNS(ns, 'circle')
+      hole.setAttribute('cx', 6 + x * 10)
+      hole.setAttribute('cy', 6 + y * 10)
+      hole.setAttribute('r', 1.4)
+      hole.setAttribute('fill', 'var(--bg)')
+      g.appendChild(c)
+      g.appendChild(hole)
+      return
+    }
+    g.appendChild(c)
+  }))
+</script>
+</body>
+</html>

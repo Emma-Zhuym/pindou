@@ -540,6 +540,13 @@ function SettingsPage({ onRestored, count }: { onRestored: () => Promise<void>; 
       <h2 className="sectiontitle">关于</h2>
       <section className="card form">
         <p className="hint">
+          第一次用？看看{' '}
+          <a className="link" href={`${import.meta.env.BASE_URL}guide.html`} target="_blank" rel="noreferrer">
+            新手指导
+          </a>
+          。
+        </p>
+        <p className="hint">
           源代码：
           <a className="link" href="https://github.com/Emma-Zhuym/pindou" target="_blank" rel="noreferrer">
             github.com/Emma-Zhuym/pindou
