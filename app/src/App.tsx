@@ -567,7 +567,7 @@ const PROVIDER_ORDER: AiProvider[] = ['bailian', 'siliconflow', 'openrouter']
 /** how to get a key, a step a line */
 const KEY_STEPS: Record<AiProvider, string[]> = {
   bailian: ['用阿里云账号登录（没有就用支付宝或手机号注册），按提示开通百炼、做实名认证', '右上角地域选「华北2（北京）」，点「创建 API Key」，其余用默认', '复制 Key，粘到下面'],
-  siliconflow: ['用手机号登录', '点「新建 API 密钥」，复制', '粘到下面；如果提示要实名或充值，跟着页面来，读一张图例大约一两分钱'],
+  siliconflow: ['用手机号登录', '点「新建 API 密钥」，复制', '粘到下面；如果提示要实名或充值，跟着页面来，读一张图例不到一分钱'],
   openrouter: ['要能上外网；注册登录后点「Create Key」，复制', '粘到下面，点「验证 Key 并获取模型」，选一个模型', '不充值只能用名字带 free 的模型；充值只收外币卡'],
 }
 

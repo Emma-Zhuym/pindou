@@ -4,9 +4,7 @@
 
 ## 安装
 
-在 iPhone 的 Safari 里打开下面的链接，下载后点"添加快捷指令"：
-
-https://emma-zhuym.github.io/pindou/拼豆读笔记.shortcut
+快捷指令文件随 App 一起部署，在 iPhone 的 Safari 里打开 `<你部署的地址>/拼豆读笔记.shortcut`，下载后点"添加快捷指令"。文件本身在仓库的 [`app/public/拼豆读笔记.shortcut`](app/public/拼豆读笔记.shortcut)。
 
 ## 使用
 
