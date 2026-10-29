@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import './App.css'
-import { type AiSettings, listVisionModels, loadAiSettings, type ModelInfo, saveAiSettings } from './ai'
+import { type AiProvider, type AiSettings, checkAi, listVisionModels, loadAiSettings, type ModelInfo, PROVIDERS, saveAiSettings } from './ai'
 import { BeadMode } from './bead/BeadMode'
 import { Editor } from './edit/Editor'
 import { StatsPage } from './stats/StatsPage'
@@ -424,10 +424,8 @@ function ChartDetail(props: { chart: Chart; onBack: () => void; onEdit: () => vo
 // ------------------------------------------------------------------ stock
 
 function SettingsPage({ onRestored, count }: { onRestored: () => Promise<void>; count: number }) {
-  const [ai, setAi] = useState<AiSettings>(loadAiSettings)
   const [skin, setSkin] = useState<Skin>(loadSkin)
   const [font, setFont] = useState<Font>(loadFont)
-  const [saved, setSaved] = useState(false)
   const [note, setNote] = useState('')
   const [kept, setKept] = useState<boolean | null>(null)
   const file = useRef<HTMLInputElement>(null)
@@ -483,44 +481,7 @@ function SettingsPage({ onRestored, count }: { onRestored: () => Promise<void>; 
       </section>
 
       <h2 className="sectiontitle">AI 读图例</h2>
-      <section className="card form">
-        <label className="field">
-          <span>OpenRouter API Key</span>
-          <input
-            type="password"
-            autoComplete="off"
-            value={ai.key}
-            onChange={(e) => {
-              setAi({ ...ai, key: e.target.value })
-              setSaved(false)
-            }}
-          />
-        </label>
-        <ModelPicker
-          apiKey={ai.key}
-          model={ai.model}
-          onModel={(model) => {
-            // picked from the checked list: save right away, key included
-            const next = { ...ai, model }
-            setAi(next)
-            saveAiSettings(next)
-            setSaved(true)
-          }}
-        />
-        <div className="row end">
-          {saved && <span className="sub">已保存</span>}
-          <button
-            className="primary small"
-            onClick={() => {
-              saveAiSettings(ai)
-              setSaved(true)
-            }}
-          >
-            保存
-          </button>
-        </div>
-        <p className="hint">Key 只存在这台设备的浏览器里。本地读图例没把握时，只把图例那一块截图发给模型，不发整张图纸。</p>
-      </section>
+      <AiSection />
 
       <h2 className="sectiontitle">数据</h2>
       <section className="card form">
@@ -591,6 +552,110 @@ function SettingsPage({ onRestored, count }: { onRestored: () => Promise<void>; 
         </p>
       </section>
     </div>
+  )
+}
+
+/** the services in the order offered: the two that work in China without a VPN first */
+const PROVIDER_ORDER: AiProvider[] = ['bailian', 'siliconflow', 'openrouter']
+/** how to get a key, a step a line */
+const KEY_STEPS: Record<AiProvider, string[]> = {
+  bailian: ['用阿里云账号登录（没有就用支付宝或手机号注册），按提示开通百炼、做实名认证', '右上角地域选「华北2（北京）」，点「创建 API Key」，其余用默认', '复制 Key，粘到下面'],
+  siliconflow: ['用手机号登录', '点「新建 API 密钥」，复制', '粘到下面；如果提示要实名或充值，跟着页面来，读一张图例大约一两分钱'],
+  openrouter: ['要能上外网；注册登录后点「Create Key」，复制', '粘到下面，点「验证 Key 并获取模型」，选一个模型', '不充值只能用名字带 free 的模型；充值只收外币卡'],
+}
+
+/**
+ * The vision model that reads legends: which service, its key, its model. Each service keeps its
+ * own key, so trying another one loses nothing. Nothing is needed to use the app: without a key
+ * the legend is typed in by hand.
+ */
+function AiSection() {
+  const [ai, setAi] = useState<AiSettings>(() => loadAiSettings())
+  const [note, setNote] = useState<{ text: string; bad?: boolean } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const p = PROVIDERS[ai.provider]
+  const change = (next: AiSettings) => {
+    setAi(next)
+    setNote(null)
+  }
+  const save = (next = ai) => {
+    saveAiSettings(next)
+    setNote({ text: '已保存' })
+  }
+  return (
+    <section className="card form">
+      <p className="hint">不设置也能用：识别时对着图例填色号和颗数。设置后 AI 替你读图例，只发图例那一小块截图，格子还是在手机上算。</p>
+      <div className="segmented full" role="radiogroup" aria-label="AI 服务">
+        {PROVIDER_ORDER.map((k) => (
+          <button key={k} role="radio" aria-checked={ai.provider === k} aria-selected={ai.provider === k} onClick={() => change(loadAiSettings(k))}>
+            {PROVIDERS[k].name}
+          </button>
+        ))}
+      </div>
+      <ol className="hint keysteps">
+        <li>
+          打开{' '}
+          <a className="link" href={p.keyPage} target="_blank" rel="noreferrer">
+            {p.name} 的 Key 页面
+          </a>
+        </li>
+        {KEY_STEPS[ai.provider].map((t) => (
+          <li key={t}>{t}</li>
+        ))}
+      </ol>
+      <label className="field">
+        <span>{p.name} API Key</span>
+        <input type="password" autoComplete="off" value={ai.key} onChange={(e) => change({ ...ai, key: e.target.value })} />
+      </label>
+      {ai.provider === 'openrouter' ? (
+        <ModelPicker
+          apiKey={ai.key}
+          model={ai.model}
+          onModel={(model) => {
+            // picked from the checked list: save right away, key included
+            const next = { ...ai, model }
+            setAi(next)
+            save(next)
+          }}
+        />
+      ) : (
+        <label className="field">
+          <span>模型（一般不用改）</span>
+          <input autoComplete="off" autoCapitalize="off" spellCheck={false} value={ai.model} placeholder={p.model} onChange={(e) => change({ ...ai, model: e.target.value.trim() })} />
+        </label>
+      )}
+      <div className="row end">
+        {note && <span className={note.bad ? 'sub bad grow' : 'sub grow'}>{note.text}</span>}
+        {ai.provider !== 'openrouter' && (
+          <button
+            className="link"
+            disabled={!ai.key.trim() || busy}
+            onClick={async () => {
+              setBusy(true)
+              const a = { ...ai, model: ai.model || p.model }
+              try {
+                setNote({ text: `${await checkAi(a)}，已保存` })
+                setAi(a)
+                saveAiSettings(a)
+              } catch (e) {
+                setNote({ text: e instanceof Error ? e.message : String(e), bad: true })
+              } finally {
+                setBusy(false)
+              }
+            }}
+          >
+            {busy ? '检查中…' : '检查'}
+          </button>
+        )}
+        <button className="primary small" onClick={() => save()}>
+          保存
+        </button>
+      </div>
+      <p className="hint">
+        Key 只存在这台设备的浏览器里，换手机要重新粘。别把 Key 发给别人或截图发帖。
+        {ai.provider !== 'openrouter' && `${p.name}的服务器在国内，人在海外用会慢一些。`}
+      </p>
+    </section>
   )
 }
 

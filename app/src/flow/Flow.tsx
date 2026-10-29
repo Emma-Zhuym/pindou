@@ -1297,7 +1297,7 @@ function CodesPage(props: {
               <p className="hint">只发送上面这块图例截图，不发整张图纸。AI 只负责读出色号和颗数，对到格子上是本机算的。</p>
             </div>
           ) : (
-            <p className="hint">先到「设置」里填好 OpenRouter Key 和模型，这里就能一键让 AI 读图例。</p>
+            <p className="hint">先到「设置 → AI 读图例」选一家、粘上 Key（国内推荐阿里云百炼或硅基流动），这里就能一键让 AI 读图例。</p>
           ))}
         {note && <p className="hint">{note}</p>}
       </section>

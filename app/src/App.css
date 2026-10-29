@@ -1971,3 +1971,12 @@ img.boardview {
   font-size: 14px;
   white-space: nowrap;
 }
+
+/* how to get an AI key, a step a line */
+.keysteps {
+  margin: 0;
+  padding-left: 1.4em;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}

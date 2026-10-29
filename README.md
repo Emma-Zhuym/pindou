@@ -13,7 +13,7 @@
 **识别图纸**
 - 导入图纸截图或原图，自动找出格子范围、行列数和图例，认出每一格的 MARD 色号。
 - 识别结果可以逐步核对：调整图纸范围、确认每个色号、按色号成墙检查格子，和图例上印的颗数对账。
-- 可选的 AI 辅助：填入自己的 [OpenRouter](https://openrouter.ai) API Key 后，会让视觉模型读图例上的色号和颗数，并复核没把握的格子。每张图大约 0.002–0.003 美元。
+- 可选的 AI 辅助：在设置里选一家（[阿里云百炼](https://bailian.console.aliyun.com)、[硅基流动](https://cloud.siliconflow.cn) 或 [OpenRouter](https://openrouter.ai)），粘上自己的 API Key，视觉模型就会读图例上的色号和颗数，并复核没把握的格子。国内推荐硅基流动，读一张图例一两分钱；人在海外连国内的服务会慢一些。不设置也能用，对着图例填色号和颗数即可。
 
 **小红书链接导入**
 - 配合 iOS 快捷指令「拼豆读笔记」，在小红书里分享笔记就能列出其中所有图片，选图纸那张导入（正常版或镜像版）。见 [SHORTCUT.md](SHORTCUT.md)。
@@ -40,7 +40,7 @@
 
 - 图纸、库存和设置都只存在你自己的浏览器里（IndexedDB），没有服务器，也不用登录。
 - 可以在设置里导出备份文件，换设备或换浏览器时再恢复。
-- 只有开启 AI 辅助时，才会把图例和格子的裁剪小图发给 OpenRouter，用的是你自己的 Key。
+- 只有开启 AI 辅助时，才会把图例和格子的裁剪小图发给你选的那家 AI 服务，用的是你自己的 Key；Key 只存在你这台设备的浏览器里。
 - 读取小红书笔记时不登录、不用 Cookie，一次只读一条你主动分享的笔记。
 - 用「打字机」字体时，会从 jsDelivr 下载 Courier Prime（只下载页面上用到的字）；中文仍用系统字体。
 
@@ -67,7 +67,7 @@ pnpm lint
 | `app/src/bead/`、`app/src/edit/` | 拼豆模式、编辑工具和色卡 |
 | `app/src/stock/`、`app/src/stats/` | 库存、补货、预计消耗、补豆清单、统计 |
 | `app/src/store.ts` | 本地存储（IndexedDB）和备份 |
-| `app/src/ai.ts` | 可选的 AI 读图（OpenRouter） |
+| `app/src/ai.ts` | 可选的 AI 读图（阿里云百炼、硅基流动、OpenRouter） |
 | `app/src/xhsNote.ts` | 从小红书笔记页面读出图片列表 |
 | `app/relay/` | 开发服务器上的链接中转 |
 | `shortcut/` | 生成并签名「拼豆读笔记」快捷指令 |
