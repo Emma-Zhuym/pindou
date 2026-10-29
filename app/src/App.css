@@ -183,6 +183,19 @@ input:focus-visible {
 }
 .flowbar .steps button {
   min-height: 36px;
+  padding: 0 2px;
+  white-space: nowrap; /* on a narrow phone the step names would break into two lines */
+}
+@media (max-width: 360px) {
+  .flowbar .steps button {
+    font-size: 12px;
+  }
+  /* the narrowest phones: the steps scroll sideways rather than push the page wider */
+  .flowbar .steps {
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
 }
 /* a step worth checking by hand: a small orange dot after its name */
 .flowbar .steps button.needs::after {
