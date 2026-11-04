@@ -59,9 +59,18 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
   useLayoutEffect(() => {
     latest.current = { chart, board, mirror, labels, offset, done, seconds }
   })
-  const save = (patch: Partial<Chart> = {}) => {
+  // a save that failed is shown, not swallowed: the progress is only on screen until one succeeds
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const save = async (patch: Partial<Chart> = {}): Promise<boolean> => {
     const l = latest.current
-    return onChange({ ...l.chart, ...patch, progress: { board: l.board ?? undefined, mirror: l.mirror, labels: l.labels, offset: l.offset ?? undefined, done: l.done, seconds: l.seconds }, updatedAt: Date.now() })
+    try {
+      await onChange({ ...l.chart, ...patch, progress: { board: l.board ?? undefined, mirror: l.mirror, labels: l.labels, offset: l.offset ?? undefined, done: l.done, seconds: l.seconds }, updatedAt: Date.now() })
+      setSaveError(null)
+      return true
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : String(e))
+      return false
+    }
   }
   useEffect(() => {
     if (!running) return
@@ -126,13 +135,11 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
     latest.current.done = all
     const patch = await statusPatch(chart, 'done')
     delete patch.progress // save() writes the progress, every code ticked
-    await save(patch)
-    onClose()
+    if ((await save(patch)) || window.confirm('没能保存，退出后这次的进度会丢失。仍要退出吗？')) onClose()
   }
   const close = async () => {
     setRunning(false)
-    await save()
-    onClose()
+    if ((await save()) || window.confirm('没能保存，退出后这次的进度会丢失。仍要退出吗？')) onClose()
   }
 
   return (
@@ -158,6 +165,11 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
         <p className="beadprogress sub">
           已完成 {done.length}/{counts.length} 色 · {placed}/{total} 颗{board ? ` · ${board} 板` : ''} · {cols}×{rows}
         </p>
+        {saveError && (
+          <p className="error" role="alert">
+            进度没能保存：{saveError}
+          </p>
+        )}
 
         {menu && (
           <>

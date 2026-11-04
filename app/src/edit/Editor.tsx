@@ -330,6 +330,8 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
         updatedAt: Date.now(),
       })
       onClose()
+    } catch (e) {
+      window.alert(`没能保存：${e instanceof Error ? e.message : String(e)}`)
     } finally {
       setSaving(false)
     }

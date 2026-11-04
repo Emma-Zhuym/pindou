@@ -89,9 +89,42 @@ async function run<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRe
   })
 }
 
-export const listCharts = async () => (await run<Chart[]>('readonly', (s) => s.getAll())).sort((a, b) => b.updatedAt - a.updatedAt)
-export const getChart = (id: string) => run<Chart | undefined>('readonly', (s) => s.get(id))
-export const putChart = (c: Chart) => run<IDBValidKey>('readwrite', (s) => s.put(c))
+// Images are kept as plain bytes, not Blobs. WebKit (Safari, iOS home-screen apps) can refuse to
+// write back a Blob it read out of IndexedDB ("Error preparing Blob/File data to be stored"), so
+// every later save of a chart failed: ticked codes, bead progress and crops were lost. Records
+// written before this still hold Blobs; they are read either way and rewritten as bytes.
+interface StoredImage {
+  bytes: ArrayBuffer
+  type: string
+}
+type StoredChart = Omit<Chart, 'image' | 'thumb'> & { image: Blob | StoredImage; thumb: Blob | StoredImage }
+
+const toStored = async (b: Blob): Promise<StoredImage> => ({ bytes: await b.arrayBuffer(), type: b.type })
+const fromStored = (v: Blob | StoredImage): Blob => (v instanceof Blob ? v : new Blob([v.bytes], { type: v.type }))
+const decode = (c: StoredChart): Chart => ({ ...c, image: fromStored(c.image), thumb: fromStored(c.thumb) })
+
+/** the images' bytes, read once per Blob and kept: saving the same chart again does not reread them */
+const bytesOf = new WeakMap<Blob, Promise<StoredImage>>()
+function stored(b: Blob): Promise<StoredImage> {
+  let p = bytesOf.get(b)
+  if (!p) {
+    p = toStored(b)
+    bytesOf.set(b, p)
+    p.catch(() => bytesOf.delete(b))
+  }
+  return p
+}
+
+export const listCharts = async () => (await run<StoredChart[]>('readonly', (s) => s.getAll())).map(decode).sort((a, b) => b.updatedAt - a.updatedAt)
+export const getChart = async (id: string) => {
+  const c = await run<StoredChart | undefined>('readonly', (s) => s.get(id))
+  return c && decode(c)
+}
+export async function putChart(c: Chart) {
+  // read the bytes before the transaction opens: it would close while waiting on them
+  const record: StoredChart = { ...c, image: await stored(c.image), thumb: await stored(c.thumb) }
+  return run<IDBValidKey>('readwrite', (s) => s.put(record))
+}
 export const deleteChart = (id: string) => run<undefined>('readwrite', (s) => s.delete(id))
 
 /** Ask the browser not to evict the library under storage pressure or after a period of disuse. */
