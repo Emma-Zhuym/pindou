@@ -5,8 +5,19 @@ import { codeColour } from '../shared'
 
 export const MIN_CELL = 4
 export const LABEL_CELL = 11 // smallest cell the code is printed in
-/** Pegs left blank round the printed guide lines of each pegboard (52: 1+50+1, 78: 4+70+4, 104: 2+100+2). */
-export const BOARD_INSET: Record<number, number> = { 52: 1, 78: 4, 104: 2 }
+/** The printed part of each pegboard: pegs left blank before it (top and left), and its size
+ *  (52: 1+50+1, 78: 4+70+4, 104: 2+100+2). */
+const BOARD_PRINT: Record<number, { lead: number; span: number }> = { 52: { lead: 1, span: 50 }, 78: { lead: 4, span: 70 }, 104: { lead: 2, span: 100 } }
+/** Pegboards also sold with the lines printed from the top left corner, the blank pegs all at the
+ *  right and bottom (78: 0+70+8). */
+export const CORNER_BOARDS = [78]
+
+/** Where the printed lines lie on a pegboard: from `lead` to `end`, in pegs from its top left. */
+export function boardPrint(side: number, corner = false): { lead: number; end: number } {
+  const p = BOARD_PRINT[side] ?? { lead: 0, span: side }
+  const lead = corner && CORNER_BOARDS.includes(side) ? 0 : p.lead
+  return { lead, end: lead + p.span }
+}
 export const MAX_SIDE = 4000 // canvas pixels a side, within what phones allow
 const GUIDE = '#e5243b' // every 5th and 10th grid line
 
@@ -18,10 +29,10 @@ export interface GuideMark {
 }
 
 /** The pegboard's printed guide positions. The blank rim is part of the board, not the chart. */
-export function boardGuideMarks(side: number): GuideMark[] {
-  const inset = BOARD_INSET[side] ?? 0
+export function boardGuideMarks(side: number, corner = false): GuideMark[] {
+  const { lead, end } = boardPrint(side, corner)
   const marks: GuideMark[] = []
-  for (let cell = inset, i = 0; cell <= side - inset; cell += 5, i++) marks.push({ cell, strong: i % 2 === 0 })
+  for (let cell = lead, i = 0; cell <= end; cell += 5, i++) marks.push({ cell, strong: i % 2 === 0 })
   return marks
 }
 
@@ -33,12 +44,12 @@ export interface PaintOptions {
   cell: number
   /** pegboard pegs a side, or null to draw the chart alone */
   board: number | null
+  /** the pegboard's lines are printed from its top left corner (see CORNER_BOARDS) */
+  corner?: boolean
   mirror?: boolean
   labels?: boolean
   /** the one code shown at full strength, others faded */
   focus?: string | null
-  /** codes ticked off: faded */
-  done?: string[]
   /** where the chart sits on the pegboard, in pegs from its top left; centred when absent */
   offset?: { x: number; y: number }
   /** show the chart boundary while the user is positioning it on a pegboard */
@@ -83,7 +94,7 @@ export function cellAt(o: PaintOptions, x: number, y: number): number {
 }
 
 export function paintChart(canvas: HTMLCanvasElement, o: PaintOptions) {
-  const { cells, cols, rows, cell, board, mirror = false, labels = false, focus = null, done = [], moving = false } = o
+  const { cells, cols, rows, cell, board, mirror = false, labels = false, focus = null, moving = false } = o
   const L = layout(o)
   const dpr = Math.min(window.devicePixelRatio || 1, MAX_SIDE / Math.max(L.width, L.height))
   canvas.width = Math.round(L.width * dpr)
@@ -117,8 +128,10 @@ export function paintChart(canvas: HTMLCanvasElement, o: PaintOptions) {
       if (!code) continue
       const x = x0 + at(c0) * cell
       const y = y0 + r * cell
-      const dim = focus ? code !== focus : done.includes(code)
-      ctx.globalAlpha = dim ? (focus ? 0.12 : 0.3) : 1
+      // only a highlighted code fades the rest: codes ticked off are drawn as they are, so a bead
+      // missed among them can still be found (the palette marks them done)
+      const dim = !!focus && code !== focus
+      ctx.globalAlpha = dim ? 0.12 : 1
       ctx.fillStyle = codeColour(code)
       ctx.fillRect(x, y, cell, cell)
       if (text && !dim) {
@@ -134,7 +147,7 @@ export function paintChart(canvas: HTMLCanvasElement, o: PaintOptions) {
   const gy0 = board ? m : y0
   const gw = board ? L.w : cols
   const gh = board ? L.h : rows
-  const inset = board ? (BOARD_INSET[board] ?? 0) : 0
+  const { lead, end } = board ? boardPrint(board, o.corner) : { lead: 0, end: 0 }
   const thin = (k: number, vertical: boolean) => {
     ctx.beginPath()
     if (vertical) {
@@ -156,12 +169,12 @@ export function paintChart(canvas: HTMLCanvasElement, o: PaintOptions) {
       ctx.beginPath()
       if (vertical) {
         const x = gx0 + k * cell
-        ctx.moveTo(x, gy0 + inset * cell)
-        ctx.lineTo(x, gy0 + (gh - inset) * cell)
+        ctx.moveTo(x, gy0 + lead * cell)
+        ctx.lineTo(x, gy0 + end * cell)
       } else {
         const y = gy0 + k * cell
-        ctx.moveTo(gx0 + inset * cell, y)
-        ctx.lineTo(gx0 + (gw - inset) * cell, y)
+        ctx.moveTo(gx0 + lead * cell, y)
+        ctx.lineTo(gx0 + end * cell, y)
       }
     }
     const width = strong ? 2 : 1.25
@@ -177,8 +190,8 @@ export function paintChart(canvas: HTMLCanvasElement, o: PaintOptions) {
   }
   if (board) {
     // These coordinates belong to the board, so they do not move with the chart.
-    for (const guide of boardGuideMarks(board)) mark(guide.cell, true, guide.strong)
-    for (const guide of boardGuideMarks(board)) mark(guide.cell, false, guide.strong)
+    for (const guide of boardGuideMarks(board, o.corner)) mark(guide.cell, true, guide.strong)
+    for (const guide of boardGuideMarks(board, o.corner)) mark(guide.cell, false, guide.strong)
   } else {
     // On a chart alone the lines count from the mirrored side too, so they match the printed chart.
     for (let k = 0; k <= gw; k++) {
@@ -204,8 +217,8 @@ export function paintChart(canvas: HTMLCanvasElement, o: PaintOptions) {
   ctx.fillStyle = '#6e6e73'
   ctx.font = `${Math.max(9, Math.floor(cell * 0.7))}px -apple-system, sans-serif`
   if (board) {
-    for (let k = 5; k <= gw - 2 * inset; k += 5) ctx.fillText(String(k), gx0 + (inset + k - 0.5) * cell, m - cell * 0.8)
-    for (let k = 5; k <= gh - 2 * inset; k += 5) ctx.fillText(String(k), m - cell * 0.9, gy0 + (inset + k - 0.5) * cell)
+    for (let k = 5; k <= end - lead; k += 5) ctx.fillText(String(k), gx0 + (lead + k - 0.5) * cell, m - cell * 0.8)
+    for (let k = 5; k <= end - lead; k += 5) ctx.fillText(String(k), m - cell * 0.9, gy0 + (lead + k - 0.5) * cell)
   } else {
     for (let k = 5; k <= cols; k += 5) ctx.fillText(String(k), x0 + ((mirror ? cols - k : k - 1) + 0.5) * cell, m - cell * 0.8)
     for (let k = 5; k <= rows; k += 5) ctx.fillText(String(k), m - cell * 0.9, y0 + (k - 0.5) * cell)
@@ -265,8 +278,8 @@ function marks(o: PaintOptions, across: boolean): { at: number; n: number; bold:
   const out: { at: number; n: number; bold: boolean }[] = []
   if (board) {
     // the pegboard's own numbering, inside its blank border
-    const inset = BOARD_INSET[board] ?? 0
-    for (let k = 1; k <= board - 2 * inset; k++) out.push({ at: (inset + k - 0.5) * cell, n: k, bold: k % 5 === 0 })
+    const { lead, end } = boardPrint(board, o.corner)
+    for (let k = 1; k <= end - lead; k++) out.push({ at: (lead + k - 0.5) * cell, n: k, bold: k % 5 === 0 })
   } else {
     const count = across ? o.cols : o.rows
     const start = across ? L.x0 : L.y0

@@ -44,7 +44,7 @@ export interface Chart {
   /** when it was marked done (missing on charts finished before this was kept) */
   doneAt?: number
   /** beading progress: pegboard and mirroring chosen, codes ticked off, seconds spent */
-  progress?: { board?: number; mirror?: boolean; labels?: boolean; offset?: { x: number; y: number }; done: string[]; seconds: number }
+  progress?: { board?: number; mirror?: boolean; corner?: boolean; labels?: boolean; offset?: { x: number; y: number }; done: string[]; seconds: number }
 }
 
 const DB = 'pindou'

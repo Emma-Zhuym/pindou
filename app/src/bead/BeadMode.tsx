@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '../Icon'
 import { codeColour, codeOrder, ICONS } from '../shared'
-import { LABEL_CELL, layout, MAX_SIDE, MIN_CELL, paintChart, paintRulers } from './paint'
+import { boardPrint, CORNER_BOARDS, LABEL_CELL, layout, MAX_SIDE, MIN_CELL, paintChart, paintRulers } from './paint'
 import { usePinchZoom } from './pinch'
 import { statusPatch } from '../status'
 import type { Chart } from '../store'
@@ -23,6 +23,9 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
   const fits = BOARDS.filter((n) => n >= Math.max(cols, rows))
   const [board, setBoard] = useState<number | null>(chart.progress?.board ?? fits[0] ?? null)
   const [mirror, setMirror] = useState(chart.progress?.mirror ?? false)
+  // a 78 pegboard with its lines printed from the top left corner, the 8 blank pegs at the right
+  // and bottom (the other kind leaves 4 blank all round)
+  const [corner, setCorner] = useState(chart.progress?.corner ?? true)
   const [labels, setLabels] = useState(chart.progress?.labels ?? true)
   // where the chart sits on the pegboard (pegs from its top left); null: centred
   const [offset, setOffset] = useState<{ x: number; y: number } | null>(chart.progress?.offset ?? null)
@@ -55,16 +58,16 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
   const placed = counts.reduce((a, [c, n]) => a + (done.includes(c) ? n : 0), 0)
 
   // keep progress with the chart; latest values through a ref so the timer can save too
-  const latest = useRef({ chart, board, mirror, labels, offset, done, seconds })
+  const latest = useRef({ chart, board, mirror, corner, labels, offset, done, seconds })
   useLayoutEffect(() => {
-    latest.current = { chart, board, mirror, labels, offset, done, seconds }
+    latest.current = { chart, board, mirror, corner, labels, offset, done, seconds }
   })
   // a save that failed is shown, not swallowed: the progress is only on screen until one succeeds
   const [saveError, setSaveError] = useState<string | null>(null)
   const save = async (patch: Partial<Chart> = {}): Promise<boolean> => {
     const l = latest.current
     try {
-      await onChange({ ...l.chart, ...patch, progress: { board: l.board ?? undefined, mirror: l.mirror, labels: l.labels, offset: l.offset ?? undefined, done: l.done, seconds: l.seconds }, updatedAt: Date.now() })
+      await onChange({ ...l.chart, ...patch, progress: { board: l.board ?? undefined, mirror: l.mirror, corner: l.corner, labels: l.labels, offset: l.offset ?? undefined, done: l.done, seconds: l.seconds }, updatedAt: Date.now() })
       setSaveError(null)
       return true
     } catch (e) {
@@ -83,16 +86,21 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
   }, [running]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    const o = { cells, cols, rows, cell, board, mirror, labels, focus, done, offset: offset ?? undefined, moving, rulers: false }
+    const o = { cells, cols, rows, cell, board, corner, mirror, labels, focus, offset: offset ?? (board ? centred(board) : undefined), moving, rulers: false }
     if (ref.current) paintChart(ref.current, o)
     const ink = getComputedStyle(document.documentElement).getPropertyValue('--sub').trim() || '#6e6e73'
     if (topRef.current && leftRef.current) paintRulers(topRef.current, leftRef.current, o, RULER, ink)
-  }, [cells, cols, rows, board, cell, mirror, labels, focus, done, offset, moving])
+  }, [cells, cols, rows, board, corner, cell, mirror, labels, focus, offset, moving]) // eslint-disable-line react-hooks/exhaustive-deps
   const stageRef = useRef<HTMLDivElement>(null)
   const pinching = usePinchZoom(stageRef, ref, cell, setCell, MIN_CELL, maxCell, true)
 
   // dragging the chart across the pegboard, a whole peg at a time, never off it
-  const centred = (n: number) => ({ x: Math.floor((n - cols) / 2), y: Math.floor((n - rows) / 2) })
+  // centred: in the printed part of the pegboard when it fits there, else on the whole board
+  const centred = (n: number) => {
+    const { lead, end } = boardPrint(n, corner)
+    const at = (len: number) => (len <= end - lead ? lead + Math.floor((end - lead - len) / 2) : Math.floor((n - len) / 2))
+    return { x: at(cols), y: at(rows) }
+  }
   const place = (p: { x: number; y: number }) => board && setOffset({ x: Math.min(board - cols, Math.max(0, p.x)), y: Math.min(board - rows, Math.max(0, p.y)) })
   const grab = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!moving || !board || pinching()) return
@@ -192,6 +200,16 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
                   </button>
                 ))}
               </div>
+              {board && CORNER_BOARDS.includes(board) && (
+                <div className="segmented full" role="radiogroup" aria-label="豆板上的线">
+                  <button role="radio" aria-checked={corner} aria-selected={corner} onClick={() => setCorner(true)}>
+                    线从左上开始
+                  </button>
+                  <button role="radio" aria-checked={!corner} aria-selected={!corner} onClick={() => setCorner(false)}>
+                    四周各留 4 格
+                  </button>
+                </div>
+              )}
               <div className="iconbtns">
                 <button
                   className={labels ? 'iconbtn on' : 'iconbtn'}
