@@ -18,9 +18,13 @@ export interface Note {
 
 /** an image's address on the image server, at full size and as a thumbnail */
 function image(src: string, width?: number, height?: number): NoteImage | null {
-  // the image token is the URL path after the host and two date segments, before any "!" style
-  const token = src.split('/').slice(5).join('/').split('!')[0].split('?')[0]
-  if (!token) return null
+  // the image token is the URL path before any "!" style or "?" query, without the date and hash
+  // segments some image servers put first: sns-webpic-qc.xhscdn.com/<date>/<hash>/notes_pre_post/1040g…
+  // and sns-i11.rednotecdn.com/notes_pre_post/1040g… (rednote.com pages) both give notes_pre_post/1040g…
+  const path = src.replace(/^[a-z]+:\/\/[^/]+\//i, '').split('!')[0].split('?')[0].split('/')
+  while (path.length > 1 && /^(\d{6,}|[0-9a-f]{32})$/i.test(path[0])) path.shift()
+  const token = path.join('/')
+  if (!token || token === src) return null
   const base = `https://ci.xiaohongshu.com/${token}`
   return { url: `${base}?imageView2/format/jpg`, thumb: `${base}?imageView2/2/w/360/format/jpg`, width, height }
 }
