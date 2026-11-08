@@ -1025,6 +1025,11 @@ img.boardview {
 .tiles canvas {
   display: block;
   cursor: pointer;
+  /* a swipe up or down scrolls the page; one across the wall chooses cells */
+  touch-action: pan-y;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 .actionbar {
   position: fixed;

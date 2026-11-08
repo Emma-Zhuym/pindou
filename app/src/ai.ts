@@ -309,10 +309,14 @@ function cellSheet(img: HTMLImageElement, rec: Recognition, cells: number[]): st
   return c.toDataURL('image/png')
 }
 
+/** What the model reads in a cell with no code printed in it (plain paper, the grey and white
+ *  checks of a transparent background, or a watermark alone) */
+export const BLANK = ''
+
 /**
  * The code printed in each of the given cells, read by the model from numbered tiles. Codes are
- * limited to the chart's own list; null where the model sees no code (an empty cell) or could not
- * read one.
+ * limited to the chart's own list; BLANK where the model sees no code in the cell (an empty cell),
+ * null where it could not read one.
  */
 export async function readCellsWithAi(
   img: HTMLImageElement,
@@ -331,8 +335,9 @@ export async function readCellsWithAi(
     const prompt = [
       `这是一张拼豆图纸上裁下来的 ${batch.length} 个格子，每格上方有红色编号。每个格子中间印着这一格的拼豆色号，有的被半透明水印或线条挡住一部分。`,
       `这张图纸只用到这些色号：${codes.join('、')}。`,
-      '请读出每个格子里印的色号，只能从上面的色号里选；格子里没有印色号（空白格）或实在认不出就填 null。只输出 JSON，不要其他文字：',
-      '{"1": "H5", "2": "C24", "3": null}',
+      '请读出每个格子里印的色号，只能从上面的色号里选。',
+      '格子里没有印色号就填 "空"：白纸、灰白相间的透明棋盘格、只有水印字或线条的格子都算空格。有色号但实在认不出才填 null。只输出 JSON，不要其他文字：',
+      '{"1": "H5", "2": "空", "3": "C24", "4": null}',
     ].join('\n')
     const text = await ask(settings, prompt, cellSheet(img, rec, batch))
     const json = /\{[\s\S]*\}/.exec(text)?.[0]
@@ -340,6 +345,7 @@ export async function readCellsWithAi(
     const parsed = JSON.parse(json) as Record<string, unknown>
     batch.forEach((cell, k) => {
       const v = parsed[String(k + 1)]
+      if (typeof v === 'string' && /^(空|空格|空白|blank|empty)$/i.test(v.trim())) return void out.set(cell, BLANK)
       const m = typeof v === 'string' ? /^([A-Za-z]+)0*(\d+)$/.exec(v.trim()) : null
       const code = m ? m[1].toUpperCase() + m[2] : null
       out.set(cell, code && allowed.has(code) ? code : null)

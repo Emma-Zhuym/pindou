@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { type AiLegend, type AiRequestEvent, type AiRequestPhase, type AiSettings, CELLS_PER_REQUEST, loadAiSettings, readCellsWithAi, readLegendWithAi } from '../ai'
+import { type AiLegend, type AiRequestEvent, type AiRequestPhase, type AiSettings, BLANK, CELLS_PER_REQUEST, loadAiSettings, readCellsWithAi, readLegendWithAi } from '../ai'
 import { loadImage, paintLabel, renderText, toRaster } from '../browser'
 import { CATALOGUE } from '../engine/glyphs'
 import { type Extent, findBoard, findGrid, type Grid, type Raster } from '../engine/grid'
@@ -211,7 +211,7 @@ export function Flow({ chart, onClose, onSaved, existingTags = [] }: { chart?: C
       const checked = await checkCells(img, current.rec, current.names, current.assign, ai, record, touched.current)
       if (checked) {
         current = checked
-        notes.push(`看了 ${checked.asked} 个没把握的格子，改了 ${checked.changed} 格${checked.unread ? `，${checked.unread} 格没读出色号，仍需手动核对` : ''}${checked.vetoed ? `，拦下 ${checked.vetoed} 个颜色不相容的改动` : ''}`)
+        notes.push(`看了 ${checked.asked} 个没把握的格子，改了 ${checked.changed} 格${checked.emptied ? `（${checked.emptied} 格改成空格）` : ''}${checked.unread ? `，${checked.unread} 格没读出色号，仍需手动核对` : ''}${checked.vetoed ? `，拦下 ${checked.vetoed} 个颜色不相容的改动` : ''}`)
       }
       if (!notes.length) return '没有需要核对的格子'
       setRec(current.rec)
@@ -219,6 +219,38 @@ export function Flow({ chart, onClose, onSaved, existingTags = [] }: { chart?: C
       setAssign(current.assign)
       return `AI ${notes.join('；')}${formatAiCalls(aiCalls)}`
     } finally { setBusy('') }
+  }
+
+  /** Ask the vision model to read the cells the person chose on the review page, whatever they
+   *  were before: the person asked for these, so cells they moved by hand are read too. */
+  async function askChosen(cells: number[]): Promise<string> {
+    if (!img || !rec || !cells.length) return ''
+    setBusy(`AI 正在看选中的 ${cells.length} 格…`)
+    const aiCalls: AiRequestEvent[] = []
+    const record = (event: AiRequestEvent) => { aiCalls.push(event); trace(event) }
+    try {
+      const checked = await checkCells(img, rec, names, assign, loadAiSettings(), record, touched.current, cells)
+      if (!checked) return ''
+      // what the model read stands, unless the person moves the cell again
+      for (const i of cells) touched.current.delete(i)
+      setRec(checked.rec)
+      setNamesState(checked.names)
+      setAssign(checked.assign)
+      return `AI 看了选中的 ${checked.asked} 格，改了 ${checked.changed} 格${checked.emptied ? `（${checked.emptied} 格改成空格）` : ''}${checked.unread ? `，${checked.unread} 格没读出色号` : ''}${checked.vetoed ? `，拦下 ${checked.vetoed} 个颜色不相容的改动` : ''}${formatAiCalls(aiCalls)}`
+    } finally { setBusy('') }
+  }
+
+  /** The person looked at these cells and they are right: no longer unsure, and the model's
+   *  reading will not move them. */
+  function confirmCells(cells: number[]) {
+    if (!rec) return
+    const unsure = Uint8Array.from(rec.unsure)
+    for (const i of cells) {
+      unsure[i] = 0
+      touched.current.add(i)
+    }
+    setRec({ ...rec, unsure })
+    setDirty(true)
   }
 
   /** Read only the legend. Cell classification waits for the user's confirmation. */
@@ -466,7 +498,7 @@ export function Flow({ chart, onClose, onSaved, existingTags = [] }: { chart?: C
           </>
         )}
         {step === 'wall' && img && rec && cellsReady && <>
-          <WallPage img={img} rec={rec} names={names} assign={assign} counts={counts} legend={legend} onAssign={editCells} onNames={(v) => { setNamesState(v); setDirty(true); setCellsReviewed(false) }} onAskCells={askCells} />
+          <WallPage img={img} rec={rec} names={names} assign={assign} counts={counts} legend={legend} onAssign={editCells} onNames={(v) => { setNamesState(v); setDirty(true); setCellsReviewed(false) }} onAskCells={askCells} onAskChosen={askChosen} onConfirm={confirmCells} />
           <div className="nextbar"><button className="primary" disabled={!!busy} onClick={() => { setCellsReviewed(true); setStep('list') }}>格子已核对，查看原图对比</button></div>
         </>}
         {step === 'list' && img && rec && cellsReady && cellsReviewed && <>
@@ -543,15 +575,17 @@ async function nameClassesWithAi(img: HTMLImageElement, rec: Recognition, names:
     const votes = new Map<string, number>()
     for (const i of cells.slice(0, CLASS_SAMPLES)) {
       const code = read.get(i)
-      if (code) votes.set(code, (votes.get(code) ?? 0) + 1)
+      if (code != null) votes.set(code, (votes.get(code) ?? 0) + 1)
     }
     const [code, n] = [...votes].sort((a, b) => b[1] - a[1])[0] ?? ['', 0]
-    if (n < CLASS_VOTES) {
+    // a whole class emptied only when every cell read says so: a bead's print under a watermark
+    // can look like none
+    if (n < (code === BLANK ? CLASS_SAMPLES : CLASS_VOTES)) {
       unread++
       continue
     }
-    let to = nextNames.indexOf(code)
-    if (to < 0) to = nextNames.push(code) - 1
+    let to = code === BLANK ? -1 : nextNames.indexOf(code)
+    if (to < 0 && code !== BLANK) to = nextNames.push(code) - 1
     if (to !== from) renamed++
     for (const i of cells) {
       if (assign[i] !== from || touched.has(i)) continue
@@ -565,10 +599,11 @@ async function nameClassesWithAi(img: HTMLImageElement, rec: Recognition, names:
 
 const colourDistance = (a: { r: number; g: number; b: number }, b: { r: number; g: number; b: number }) => Math.abs(a.r - b.r) + Math.abs(a.g - b.g) + Math.abs(a.b - b.b)
 
-/** The model's reading of doubtful cells laid onto the board: read codes replace the guess, and the
- *  cell counts as checked. Cells it saw no code in are left as they were. */
-async function checkCells(img: HTMLImageElement, rec: Recognition, names: string[], assign: Int16Array, ai: AiSettings, trace?: (event: AiRequestEvent) => void, touched = new Set<number>()) {
-  const cells = doubtfulCells(rec, assign).filter((i) => !touched.has(i))
+/** The model's reading of doubtful cells (or the cells given) laid onto the board: read codes replace
+ *  the guess, a cell read as having no code becomes an empty one, and the cell counts as checked.
+ *  Cells it could not read are left as they were. */
+async function checkCells(img: HTMLImageElement, rec: Recognition, names: string[], assign: Int16Array, ai: AiSettings, trace?: (event: AiRequestEvent) => void, touched = new Set<number>(), chosen?: number[]) {
+  const cells = chosen ?? doubtfulCells(rec, assign).filter((i) => !touched.has(i))
   const codes = [...new Set(names.filter(Boolean))]
   if (!cells.length || !codes.length) return null
   const read = await readCellsWithAi(img, rec, cells, codes, ai, trace, 'cell-check')
@@ -576,26 +611,30 @@ async function checkCells(img: HTMLImageElement, rec: Recognition, names: string
   const nextAssign = Int16Array.from(assign)
   const unsure = Uint8Array.from(rec.unsure)
   let changed = 0
+  let emptied = 0
   let vetoed = 0
   let unread = 0
   for (const [cell, code] of read) {
-    if (!code) { unread++; continue }
-    let g = nextNames.indexOf(code)
-    if (g < 0) g = nextNames.push(code) - 1
+    if (code === null) { unread++; continue }
+    let g = code === BLANK ? -1 : nextNames.indexOf(code)
+    if (g < 0 && code !== BLANK) g = nextNames.push(code) - 1
     if (!aiCellColourSupports(rec, nextNames, nextAssign[cell], g, cell)) {
       vetoed++
       continue
     }
-    if (nextAssign[cell] !== g) changed++
+    if (nextAssign[cell] !== g) {
+      changed++
+      if (g < 0) emptied++
+    }
     nextAssign[cell] = g
     unsure[cell] = 0
   }
-  return { names: nextNames, assign: nextAssign, rec: { ...rec, unsure }, asked: cells.length, changed, vetoed, unread }
+  return { names: nextNames, assign: nextAssign, rec: { ...rec, unsure }, asked: cells.length, changed, emptied, vetoed, unread }
 }
 
 /** A cell-level model correction must agree with the image colour, not just the printed glyph. */
 function aiCellColourSupports(rec: Recognition, names: string[], from: number, to: number, cell: number): boolean {
-  if (from < 0 || from === to) return true
+  if (from < 0 || to < 0 || from === to) return true
   const observed = { r: rec.cells.fill[cell * 3], g: rec.cells.fill[cell * 3 + 1], b: rec.cells.fill[cell * 3 + 2] }
   const currentGroup = rec.groups[from]
   const candidateGroup = rec.groups[to]
@@ -967,8 +1006,10 @@ function BoardCheck({ img, rec, busy, printedSize, onApply, onPendingChange }: {
           ext={ext}
           onCancel={() => setAligning(false)}
           onDone={(g) => {
+            // applied at once: the lines were lined up to be used, not to wait for a second button
             setGrid(g)
             setAligning(false)
+            onApply(ext, g)
           }}
         />
       )}
@@ -994,8 +1035,8 @@ function BoardCheck({ img, rec, busy, printedSize, onApply, onPendingChange }: {
 
 /**
  * Lining up the grid lines: two magnified corners of the board with the lines drawn over them.
- * Dragging either moves the picture under the lines, as a finger moves a photo; the cell size is
- * left alone (the recogniser gets it right; what goes wrong is where the lines start).
+ * Dragging either corner moves the picture under the lines there, as a finger moves a photo, and
+ * leaves the other corner where it is; the cell size follows from where the two corners are.
  */
 function AlignSheet({ img, grid: start, ext, onCancel, onDone }: { img: HTMLImageElement; grid: Grid; ext: Extent; onCancel: () => void; onDone: (g: Grid) => void }) {
   const [grid, setGrid] = useState(start)
@@ -1043,7 +1084,10 @@ function AlignSheet({ img, grid: start, ext, onCancel, onDone }: { img: HTMLImag
     corner(bottomRight.current, ext.r0 + ext.rows - ZOOM_CELLS, ext.c0 + ext.cols - ZOOM_CELLS)
   }, [img, grid, ext])
   const last = useRef<{ x: number; y: number } | null>(null)
-  const drag = {
+  // Each corner moves on its own and the other stays where it is, so lining up both corners also
+  // sets the cell size (the recogniser sometimes gets it a little off, and then no single shift
+  // fits both ends of the board).
+  const drag = (corner: 'topLeft' | 'bottomRight') => ({
     onPointerDown: (e: React.PointerEvent<HTMLCanvasElement>) => {
       e.currentTarget.setPointerCapture(e.pointerId)
       last.current = { x: e.clientX, y: e.clientY }
@@ -1055,23 +1099,40 @@ function AlignSheet({ img, grid: start, ext, onCancel, onDone }: { img: HTMLImag
       const dx = (e.clientX - last.current.x) * cells
       const dy = (e.clientY - last.current.y) * cells
       last.current = { x: e.clientX, y: e.clientY }
-      setGrid((g) => ({ ...g, offX: g.offX - dx * g.perX, offY: g.offY - dy * g.perY }))
+      setGrid((g) => {
+        // the board's two corners on the image; the dragged one moves against the finger
+        let x0 = g.offX + ext.c0 * g.perX
+        let y0 = g.offY + ext.r0 * g.perY
+        let x1 = x0 + ext.cols * g.perX
+        let y1 = y0 + ext.rows * g.perY
+        if (corner === 'topLeft') {
+          x0 -= dx * g.perX
+          y0 -= dy * g.perY
+        } else {
+          x1 -= dx * g.perX
+          y1 -= dy * g.perY
+        }
+        const perX = (x1 - x0) / ext.cols
+        const perY = (y1 - y0) / ext.rows
+        if (perX < 2 || perY < 2) return g
+        return { ...g, perX, perY, offX: x0 - ext.c0 * perX, offY: y0 - ext.r0 * perY }
+      })
     },
     onPointerUp: () => (last.current = null),
     onPointerCancel: () => (last.current = null),
-  }
+  })
   return (
     <div className="sheet" onClick={onCancel}>
       <div className="sheetbody form" onClick={(e) => e.stopPropagation()}>
         <h2>对齐格线</h2>
-        <p className="hint">粉线应该压在图纸的格线上（蓝线是图纸边缘）。用手指拖动放大图里的图片，直到两个角都对上。</p>
+        <p className="hint">粉线应该压在图纸的格线上（蓝线是图纸边缘）。用手指拖动放大图里的图片，两个角分别对上：拖一个角时另一个角不动，格子大小跟着调整。</p>
         <div className="gridzoom">
           <figure>
-            <canvas ref={topLeft} {...drag} />
+            <canvas ref={topLeft} {...drag('topLeft')} />
             <figcaption>左上角</figcaption>
           </figure>
           <figure>
-            <canvas ref={bottomRight} {...drag} />
+            <canvas ref={bottomRight} {...drag('bottomRight')} />
             <figcaption>右下角</figcaption>
           </figure>
         </div>
@@ -1558,8 +1619,15 @@ function CropSheet({ img, onDone, onCancel }: { img: HTMLImageElement; onDone: (
 
 const TILE = 44
 
-function Tiles(props: { img: HTMLImageElement; rec: Recognition; cells: number[]; selected: Set<number>; onPick: (cell: number) => void }) {
-  const { img, rec, cells, selected, onPick } = props
+/**
+ * A wall of cells cut from the image. A tap chooses or lets go of one cell; a swipe across the
+ * wall chooses (or, starting on a chosen cell, lets go of) every cell it passes over. A swipe that
+ * starts up or down scrolls the page instead.
+ */
+function Tiles(props: { img: HTMLImageElement; rec: Recognition; cells: number[]; selected: Set<number>; onPaint: (cells: number[], choose: boolean) => void }) {
+  const { img, rec, cells, selected, onPaint } = props
+  // the swipe under way: whether it chooses or lets go, its first tile, the tiles it passed, where it is
+  const swipe = useRef<{ choose: boolean; first: number; passed: Set<number>; x: number; y: number } | null>(null)
   const wrap = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
   const [perRow, setPerRow] = useState(8)
@@ -1605,15 +1673,51 @@ function Tiles(props: { img: HTMLImageElement; rec: Recognition; cells: number[]
     })
   }, [img, rec, cells, perRow, selected])
 
+  const tileAt = (box: DOMRect, x: number, y: number) => {
+    const col = Math.floor((x - box.left) / TILE)
+    const k = Math.floor((y - box.top) / TILE) * perRow + col
+    return col >= 0 && col < perRow && k >= 0 && k < cells.length ? k : -1
+  }
   return (
     <div ref={wrap} className="tiles">
       <canvas
         ref={canvas}
-        onClick={(e) => {
-          const r = e.currentTarget.getBoundingClientRect()
-          const k = Math.floor((e.clientY - r.top) / TILE) * perRow + Math.floor((e.clientX - r.left) / TILE)
-          if (k >= 0 && k < cells.length) onPick(cells[k])
+        onPointerDown={(e) => {
+          if (e.button !== 0) return
+          const k = tileAt(e.currentTarget.getBoundingClientRect(), e.clientX, e.clientY)
+          if (k < 0) return
+          swipe.current = { choose: !selected.has(cells[k]), first: k, passed: new Set([k]), x: e.clientX, y: e.clientY }
         }}
+        onPointerMove={(e) => {
+          const s = swipe.current
+          if (!s) return
+          const box = e.currentTarget.getBoundingClientRect()
+          // every tile on the way, also when the finger moves fast
+          const steps = Math.max(1, Math.ceil(Math.hypot(e.clientX - s.x, e.clientY - s.y) / (TILE / 3)))
+          const fresh: number[] = []
+          for (let t = 1; t <= steps; t++) {
+            const k = tileAt(box, s.x + ((e.clientX - s.x) * t) / steps, s.y + ((e.clientY - s.y) * t) / steps)
+            if (k >= 0 && !s.passed.has(k)) {
+              s.passed.add(k)
+              fresh.push(k)
+            }
+          }
+          s.x = e.clientX
+          s.y = e.clientY
+          if (!fresh.length) return
+          if (s.passed.size === fresh.length + 1) {
+            // the swipe has left its first tile: it is a swipe, not a tap, and keeps the finger
+            e.currentTarget.setPointerCapture(e.pointerId)
+            fresh.unshift(s.first)
+          }
+          onPaint(fresh.map((k) => cells[k]), s.choose)
+        }}
+        onPointerUp={() => {
+          const s = swipe.current
+          swipe.current = null
+          if (s && s.passed.size === 1) onPaint([cells[s.first]], s.choose)
+        }}
+        onPointerCancel={() => (swipe.current = null)}
       />
     </div>
   )
@@ -1629,8 +1733,10 @@ function WallPage(props: {
   onAssign: (a: Int16Array) => void
   onNames: (n: string[]) => void
   onAskCells: () => Promise<string>
+  onAskChosen: (cells: number[]) => Promise<string>
+  onConfirm: (cells: number[]) => void
 }) {
-  const { img, rec, names, assign, counts, legend, onAssign, onNames, onAskCells } = props
+  const { img, rec, names, assign, counts, legend, onAssign, onNames, onAskCells, onAskChosen, onConfirm } = props
   const [ai] = useState<AiSettings>(loadAiSettings)
   const [checking, setChecking] = useState(false)
   const [checkNote, setCheckNote] = useState('')
@@ -1679,11 +1785,15 @@ function WallPage(props: {
   }, [assign, rec])
 
   const codes = [...new Set(names.filter(Boolean))].sort(codeOrder)
-  const toggle = (cell: number) => {
-    const next = new Set(selected)
-    if (!next.delete(cell)) next.add(cell)
-    setSelected(next)
-  }
+  const paint = (cells: number[], choose: boolean) =>
+    setSelected((was) => {
+      const next = new Set(was)
+      for (const c of cells) {
+        if (choose) next.add(c)
+        else next.delete(c)
+      }
+      return next
+    })
   // a whole wall at once (as filtered): all of it chosen, or all of it let go if it already was
   const allChosen = (cells: number[]) => cells.length > 0 && cells.every((c) => selected.has(c))
   const toggleAll = (cells: number[]) => {
@@ -1728,7 +1838,7 @@ function WallPage(props: {
                 {allChosen(shownBlanks) ? '取消全选' : `全选 ${shownBlanks.length}`}
               </button>
             </header>
-            <Tiles img={img} rec={rec} cells={open ? shownBlanks : shownBlanks.slice(0, BLANK_LIMIT)} selected={selected} onPick={toggle} />
+            <Tiles img={img} rec={rec} cells={open ? shownBlanks : shownBlanks.slice(0, BLANK_LIMIT)} selected={selected} onPaint={paint} />
             {shownBlanks.length > BLANK_LIMIT && (
               <button className="link" onClick={() => setExpanded(new Set(open ? [...expanded].filter((c) => c !== '') : [...expanded, '']))}>
                 {open ? '收起' : `显示全部 ${shownBlanks.length} 格`}
@@ -1755,7 +1865,7 @@ function WallPage(props: {
                 {allChosen(cells) ? '取消全选' : `全选 ${cells.length}`}
               </button>
             </header>
-            <Tiles img={img} rec={rec} cells={shown} selected={selected} onPick={toggle} />
+            <Tiles img={img} rec={rec} cells={shown} selected={selected} onPaint={paint} />
             {cells.length > LIMIT && (
               <button className="link" onClick={() => setExpanded(new Set(open ? [...expanded].filter((c) => c !== code) : [...expanded, code]))}>
                 {open ? '收起' : `显示全部 ${cells.length} 格`}
@@ -1769,7 +1879,7 @@ function WallPage(props: {
 
   return (
     <div className="page">
-      <p className="hint">每一面墙是被认成同一个色号的全部格子，直接从原图裁出来。混进去的错格子点一下改掉。橙色框是程序没把握的，排在最前面。</p>
+      <p className="hint">每一面墙是被认成同一个色号的全部格子，直接从原图裁出来。混进去的错格子点一下选中，或者横着划一下连选一片，再改掉、让 AI 看，或者标成没错。橙色框是程序没把握的，排在最前面。</p>
       <div className="row">
         <label className="toggle">
           <input type="checkbox" checked={onlyUnsure} onChange={(e) => setOnlyUnsure(e.target.checked)} /> 只看没把握的
@@ -1799,9 +1909,9 @@ function WallPage(props: {
           >
             {checking ? 'AI 核对中…' : `让 AI 核对：读每堆的字（${toRead} 堆）${doubtful ? `，再看没把握的 ${doubtful} 格` : ''}（约 ${requests} 次请求）`}
           </button>
-          {checkNote && <span className="sub">{checkNote}</span>}
         </div>
       )}
+      {checkNote && <p className="sub">{checkNote}</p>}
       <nav className="codeindex" aria-label="色号目录">
         {mismatched.map(([c]) => (
           <button key={c} className="chip off" onClick={() => jump(`wall-${c}`)}>
@@ -1832,6 +1942,38 @@ function WallPage(props: {
           <button className="link" onClick={() => setSelected(new Set())}>
             取消
           </button>
+          {[...selected].some((c) => rec.unsure[c]) && (
+            <button
+              className="link"
+              onClick={() => {
+                onConfirm([...selected])
+                setSelected(new Set())
+              }}
+            >
+              没错
+            </button>
+          )}
+          {ai.key && ai.model && (
+            <button
+              className="link"
+              disabled={checking}
+              onClick={async () => {
+                const chosen = [...selected]
+                setChecking(true)
+                setCheckNote('')
+                try {
+                  setCheckNote(await onAskChosen(chosen))
+                  setSelected(new Set())
+                } catch (e) {
+                  setCheckNote(e instanceof Error ? e.message : String(e))
+                } finally {
+                  setChecking(false)
+                }
+              }}
+            >
+              {checking ? 'AI 看中…' : `AI 看${selected.size > CELLS_PER_REQUEST ? `（${Math.ceil(selected.size / CELLS_PER_REQUEST)} 次请求）` : ''}`}
+            </button>
+          )}
           <button className="primary small" onClick={() => setPicking(true)}>
             改为…
           </button>
