@@ -6,15 +6,15 @@ import { Icon } from '../Icon'
 import { boardThumb, codeColour, codeOrder, ICONS } from '../shared'
 import { type Chart, countCells } from '../store'
 import { ColourCard } from './ColourCard'
-import { type Float, lassoPieces, type Pt, putDown } from './lasso'
+import { type Float, piecesOf, putDown } from './select'
 
-type Tool = 'move' | 'brush' | 'eraser' | 'picker' | 'lasso'
+type Tool = 'move' | 'brush' | 'eraser' | 'picker' | 'select'
 const TOOLS: [Tool, string][] = [
   ['move', '移动'],
   ['brush', '画笔'],
   ['eraser', '橡皮'],
   ['picker', '吸管'],
-  ['lasso', '套索'],
+  ['select', '选区'],
 ]
 const UNDO_DEPTH = 50
 /** brush sizes, in cells a side */
@@ -59,7 +59,7 @@ const beadsBox = (cells: string[], cols: number, rows: number): Box => {
 
 /**
  * Editing a saved chart by hand: paint cells with a code (a square brush of one or more cells),
- * erase them, pick a code off the board, lasso some beads and move them, swap one code for
+ * erase them, pick a code off the board, pick some beads and move them, swap one code for
  * another everywhere, crop, undo. Saving rewrites the chart's cells, counts and
  * thumbnail; the recogniser's editing state is dropped so a later "修改识别结果" starts from these
  * cells rather than from the older recognition. The recognised version is kept beside them: it can
@@ -87,8 +87,11 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
   const [swap, setSwap] = useState<{ from: string; to: string; exchange?: boolean } | null>(null)
   const [saving, setSaving] = useState(false)
   const [comparing, setComparing] = useState(false)
-  // the lasso being drawn, then the beads it took while they are moved
-  const [lasso, setLasso] = useState<Pt[] | null>(null)
+  // the cells picked with the select tool (painted like the brush; blanks are never picked), then
+  // the beads lifted from them while they are moved
+  const [picked, setPicked] = useState<Set<number>>(() => new Set())
+  // the select tool's brush takes cells out of the selection instead
+  const [unpick, setUnpick] = useState(false)
   const [float, setFloat] = useState<Float | null>(null)
   const placed = useMemo(() => (float ? putDown(cols, rows, float) : null), [float, cols, rows])
   const changed = useMemo(() => cells.reduce((n, c, i) => n + (c !== original[i] ? 1 : 0), 0), [cells, original])
@@ -109,20 +112,19 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
     const c = ref.current
     if (!c) return
     paintChart(c, { cells: shown, cols, rows, cell, board: null, labels })
-    if (lasso || float) {
+    // the picked cells, or the lifted beads where they are now: tinted, with a dashed edge round
+    // them (every side not shared with another)
+    const marked = float ? float.pieces.map((p) => ({ x: p.x + float.dx, y: p.y + float.dy })) : [...picked].map((i) => ({ x: i % cols, y: Math.floor(i / cols) }))
+    if (marked.length && !comparing) {
       const { x0, y0 } = layout(opts)
       const ctx = c.getContext('2d')!
+      const set = new Set(marked.map((p) => `${p.x},${p.y}`))
+      const has = (x: number, y: number) => set.has(`${x},${y}`)
+      ctx.fillStyle = 'rgba(0, 122, 255, 0.28)'
+      for (const { x, y } of marked) ctx.fillRect(x0 + x * cell, y0 + y * cell, cell, cell)
       ctx.beginPath()
-      if (lasso) {
-        lasso.forEach((p, i) => (i ? ctx.lineTo : ctx.moveTo).call(ctx, x0 + p.x * cell, y0 + p.y * cell))
-        ctx.closePath()
-      } else if (float) {
-        // the edge round the lifted beads where they are now: every side not shared with another
-        const set = new Set(float.pieces.map((p) => `${p.x + float.dx},${p.y + float.dy}`))
-        const has = (x: number, y: number) => set.has(`${x},${y}`)
-        for (const p of float.pieces) {
-          const x = p.x + float.dx
-          const y = p.y + float.dy
+      {
+        for (const { x, y } of marked) {
           const X = x0 + x * cell
           const Y = y0 + y * cell
           const seg = (ax: number, ay: number, bx: number, by: number) => {
@@ -167,7 +169,7 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
       ctx.fill()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shown, cols, rows, cell, labels, crop, lasso, float])
+  }, [shown, cols, rows, cell, labels, crop, picked, float, comparing])
   const stageRef = useRef<HTMLDivElement>(null)
   const pinching = usePinchZoom(stageRef, ref, cell, setCell, MIN_CELL, maxCell)
 
@@ -287,20 +289,41 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
     setCell(Math.max(MIN_CELL, Math.min(Math.floor(MAX_SIDE / side), Math.floor(Math.min(document.documentElement.clientWidth - 40, 900) / side))))
   }
 
-  // the lasso: a path drawn round some beads, then those beads dragged a whole cell at a time
-  const path = useRef<Pt[] | null>(null)
+  // selecting: the brush's square, adding the beads under it to the selection (or taking them
+  // out); then the lifted beads dragged a whole cell at a time
+  const picking = useRef<Set<number> | null>(null)
   const grab = useRef<{ x: number; y: number; dx: number; dy: number } | null>(null)
-  const lassoDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+  const pick = (i: number) => {
+    const set = picking.current
+    if (i < 0 || !set) return
+    const x = i % cols
+    const y = (i - x) / cols
+    const from = Math.floor((brush - 1) / 2)
+    let changed = false
+    for (let dy = -from; dy < brush - from; dy++)
+      for (let dx = -from; dx < brush - from; dx++) {
+        const cx = x + dx
+        const cy = y + dy
+        if (cx < 0 || cy < 0 || cx >= cols || cy >= rows) continue
+        const j = cy * cols + cx
+        if (unpick ? set.delete(j) : cells[j] && !set.has(j) && set.add(j)) changed = true
+      }
+    if (!changed) return
+    setPicked(new Set(set))
+    // nothing left to take out: the brush adds again
+    if (!set.size) setUnpick(false)
+  }
+  const selectDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (comparing || pinching()) return
     e.currentTarget.setPointerCapture(e.pointerId)
     if (float) {
       grab.current = { x: e.clientX, y: e.clientY, dx: float.dx, dy: float.dy }
       return
     }
-    path.current = [cropAt(e)]
-    setLasso(path.current)
+    picking.current = new Set(picked)
+    pick(at(e))
   }
-  const lassoMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+  const selectMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const g = grab.current
     if (g && float) {
       if (pinching()) {
@@ -316,27 +339,24 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
       if (dx !== float.dx || dy !== float.dy) setFloat({ ...float, dx, dy })
       return
     }
-    const p = path.current
-    if (!p) return
+    if (!picking.current) return
+    // a second finger came down: a pinch, so this stroke's picks are taken back
     if (pinching()) {
-      path.current = null
-      setLasso(null)
+      picking.current = null
+      setPicked(new Set(picked))
       return
     }
-    const q = cropAt(e)
-    const last = p[p.length - 1]
-    if (Math.hypot(q.x - last.x, q.y - last.y) < 0.25) return
-    path.current = [...p, q]
-    setLasso(path.current)
+    pick(at(e))
   }
-  const lassoUp = () => {
+  const selectUp = () => {
     grab.current = null
-    const p = path.current
-    path.current = null
-    setLasso(null)
-    if (!p) return
-    const pieces = lassoPieces(cells, cols, rows, p)
+    picking.current = null
+  }
+  const lift = () => {
+    const pieces = piecesOf(cells, cols, picked)
     if (pieces.length) setFloat({ pieces, dx: 0, dy: 0, top: true, keep: false, before: cells })
+    setPicked(new Set())
+    setUnpick(false)
   }
   const drop = () => {
     if (!float || !placed) return
@@ -345,6 +365,7 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
   }
   const pickTool = (t: Tool) => {
     drop()
+    if (t !== 'select') setPicked(new Set())
     setTool(t)
   }
 
@@ -353,8 +374,8 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
       cropDown(e)
       return
     }
-    if (tool === 'lasso') {
-      lassoDown(e)
+    if (tool === 'select') {
+      selectDown(e)
       return
     }
     if (comparing || tool === 'move' || pinching()) return
@@ -377,8 +398,8 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
       cropMove(e)
       return
     }
-    if (tool === 'lasso') {
-      lassoMove(e)
+    if (tool === 'select') {
+      selectMove(e)
       return
     }
     const s = stroke.current
@@ -393,8 +414,8 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
   }
   const up = () => {
     held.current = null
-    if (tool === 'lasso') {
-      lassoUp()
+    if (tool === 'select') {
+      selectUp()
       return
     }
     const s = stroke.current
@@ -481,7 +502,7 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
             </button>
           ))}
         </div>
-        {(tool === 'brush' || tool === 'eraser') && (
+        {(tool === 'brush' || tool === 'eraser' || (tool === 'select' && !float)) && (
           <div className="segmented small" role="radiogroup" aria-label="笔刷大小">
             {BRUSHES.map((n) => (
               <button key={n} role="radio" aria-checked={brush === n} aria-selected={brush === n} aria-label={`笔刷 ${n}×${n} 格`} onClick={() => setBrush(n)}>
@@ -597,11 +618,42 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
             <button className={float.keep ? 'chip on' : 'chip'} aria-pressed={float.keep} onClick={() => setFloat({ ...float, keep: !float.keep })}>
               原处保留
             </button>
-            <button className="link" onClick={() => setFloat(null)}>
+            <button
+              className="link"
+              onClick={() => {
+                // back to the cells as picked, to change the selection
+                setPicked(new Set(float.pieces.map((p) => p.y * cols + p.x)))
+                setFloat(null)
+              }}
+            >
               取消
             </button>
             <button className="primary small" onClick={drop}>
               放下
+            </button>
+          </div>
+        ) : tool === 'select' && picked.size ? (
+          <div className="focusbar cropbar floatbar">
+            <b>已选 {picked.size} 颗</b>
+            <div className="segmented small" role="radiogroup" aria-label="选区笔">
+              <button role="radio" aria-checked={!unpick} aria-selected={!unpick} onClick={() => setUnpick(false)}>
+                加选
+              </button>
+              <button role="radio" aria-checked={unpick} aria-selected={unpick} onClick={() => setUnpick(true)}>
+                减选
+              </button>
+            </div>
+            <button
+              className="link"
+              onClick={() => {
+                setPicked(new Set())
+                setUnpick(false)
+              }}
+            >
+              清空
+            </button>
+            <button className="primary small" onClick={lift}>
+              选好了，移动
             </button>
           </div>
         ) : (
@@ -609,7 +661,7 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
         <div className="focusbar">
           <span className="swatch" style={{ background: codeColour(code) }} />
           <b>{code}</b>
-          <span className="sub">{tool === 'move' ? '选"画笔"后在图上点或拖' : tool === 'eraser' ? (brush > 1 ? `点或拖动，一次擦 ${brush}×${brush} 格` : '点格子变成空格') : tool === 'picker' ? '点一格取它的色号' : tool === 'lasso' ? '圈住要挪的部分，空格不算' : brush > 1 ? `点或拖动，一次涂 ${brush}×${brush} 格` : '点或拖动涂色'}</span>
+          <span className="sub">{tool === 'move' ? '选"画笔"后在图上点或拖' : tool === 'eraser' ? (brush > 1 ? `点或拖动，一次擦 ${brush}×${brush} 格` : '点格子变成空格') : tool === 'picker' ? '点一格取它的色号' : tool === 'select' ? '像画笔一样涂过要挪的豆子，空格不算' : brush > 1 ? `点或拖动，一次涂 ${brush}×${brush} 格` : '点或拖动涂色'}</span>
           <button className="chip" onClick={() => setCard('brush')}>
             色卡
           </button>
