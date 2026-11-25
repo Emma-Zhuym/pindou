@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '../Icon'
 import { codeColour, codeOrder, ICONS } from '../shared'
-import { boardPrint, CORNER_BOARDS, LABEL_CELL, layout, MAX_SIDE, MIN_CELL, paintChart, paintRulers } from './paint'
+import { boardTiles, CORNER_BOARDS, LABEL_CELL, layout, MAX_SIDE, MIN_CELL, paintChart, paintRulers, tiledPrint } from './paint'
 import { usePinchZoom } from './pinch'
 import { statusPatch } from '../status'
 import type { Chart } from '../store'
@@ -20,8 +20,11 @@ const clock = (s: number) => `${Math.floor(s / 3600)}:${pad(Math.floor(s / 60) %
  */
 export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: () => void; onChange: (c: Chart) => Promise<void> }) {
   const { cols, rows, cells } = chart
-  const fits = BOARDS.filter((n) => n >= Math.max(cols, rows))
-  const [board, setBoard] = useState<number | null>(chart.progress?.board ?? fits[0] ?? null)
+  // a chart bigger than every pegboard goes on several: the size that needs fewest, the smaller
+  // of a tie (78×148: two 78s rather than two 104s)
+  const boardCount = (n: number) => boardTiles(n, cols, rows).x * boardTiles(n, cols, rows).y
+  const best = [...BOARDS].sort((a, b) => boardCount(a) - boardCount(b) || a - b)[0]
+  const [board, setBoard] = useState<number | null>(chart.progress?.board ?? best)
   const [mirror, setMirror] = useState(chart.progress?.mirror ?? false)
   // a 78 pegboard with its lines printed from the top left corner, the 8 blank pegs at the right
   // and bottom (the other kind leaves 4 blank all round)
@@ -37,7 +40,8 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
   const [focus, setFocus] = useState<string | null>(null)
   const [seconds, setSeconds] = useState(chart.progress?.seconds ?? 0)
   const [running, setRunning] = useState(false)
-  const side = board ?? Math.max(cols, rows)
+  const tiles = board ? boardTiles(board, cols, rows) : { x: 1, y: 1 }
+  const side = board ? board * Math.max(tiles.x, tiles.y) : Math.max(cols, rows)
   // a ruler margin of two cells on the top and left
   // start with the whole pegboard on screen (page gutters and scrollbar left out)
   const fitCell = Math.floor(Math.min(document.documentElement.clientWidth - 40, 900) / (side + 2))
@@ -96,12 +100,16 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
 
   // dragging the chart across the pegboard, a whole peg at a time, never off it
   // centred: in the printed part of the pegboard when it fits there, else on the whole board
+  // (on several pegboards: in the printed part from the first board's lines to the last's)
   const centred = (n: number) => {
-    const { lead, end } = boardPrint(n, corner)
-    const at = (len: number) => (len <= end - lead ? lead + Math.floor((end - lead - len) / 2) : Math.floor((n - len) / 2))
-    return { x: at(cols), y: at(rows) }
+    const t = boardTiles(n, cols, rows)
+    const at = (len: number, count: number) => {
+      const { lead, end } = tiledPrint(n, count, corner)
+      return len <= end - lead ? lead + Math.floor((end - lead - len) / 2) : Math.floor((n * count - len) / 2)
+    }
+    return { x: at(cols, t.x), y: at(rows, t.y) }
   }
-  const place = (p: { x: number; y: number }) => board && setOffset({ x: Math.min(board - cols, Math.max(0, p.x)), y: Math.min(board - rows, Math.max(0, p.y)) })
+  const place = (p: { x: number; y: number }) => board && setOffset({ x: Math.min(board * tiles.x - cols, Math.max(0, p.x)), y: Math.min(board * tiles.y - rows, Math.max(0, p.y)) })
   const grab = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!moving || !board || pinching()) return
     e.currentTarget.setPointerCapture(e.pointerId)
@@ -171,7 +179,7 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
           </button>
         </header>
         <p className="beadprogress sub">
-          已完成 {done.length}/{counts.length} 色 · {placed}/{total} 颗{board ? ` · ${board} 板` : ''} · {cols}×{rows}
+          已完成 {done.length}/{counts.length} 色 · {placed}/{total} 颗{board ? ` · ${board} 板${tiles.x * tiles.y > 1 ? ` ×${tiles.x * tiles.y}` : ''}` : ''} · {cols}×{rows}
         </p>
         {saveError && (
           <p className="error" role="alert">
@@ -190,13 +198,12 @@ export function BeadMode({ chart, onClose, onChange }: { chart: Chart; onClose: 
                     role="radio"
                     aria-checked={board === n}
                     aria-selected={board === n}
-                    disabled={n < Math.max(cols, rows)}
                     onClick={() => {
                       setBoard(n)
                       setOffset(null)
                     }}
                   >
-                    {n} 板
+                    {n} 板{boardCount(n) > 1 ? ` ×${boardCount(n)}` : ''}
                   </button>
                 ))}
               </div>

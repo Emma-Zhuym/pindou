@@ -10,7 +10,14 @@ document.documentElement.dataset.font = 'pixel'
 
 const cols = 20
 const rows = 30
-const cells = Array.from({ length: cols * rows }, (_, i) => (i % 7 === 0 ? 'A1' : i % 3 === 0 ? 'F10' : 'B11'))
+// ?blanks: a red square and a green one on an empty chart, for the lasso
+const blanks = new URLSearchParams(location.search).has('blanks')
+const cells = Array.from({ length: cols * rows }, (_, i) => {
+  const x = i % cols
+  const y = Math.floor(i / cols)
+  if (blanks) return x >= 2 && x < 7 && y >= 2 && y < 7 ? 'F10' : x >= 9 && x < 14 && y >= 4 && y < 9 ? 'B11' : ''
+  return i % 7 === 0 ? 'A1' : i % 3 === 0 ? 'F10' : 'B11'
+})
 const chart = {
   id: 'editor-fixture',
   title: '芒果鸳鸯',

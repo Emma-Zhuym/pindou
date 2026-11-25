@@ -2,8 +2,8 @@ import { createRoot } from 'react-dom/client'
 import { BeadMode } from '../src/bead/BeadMode'
 import '../src/App.css'
 
-const cols = 20
-const rows = 30
+// ?size=78x148 for a chart bigger than one pegboard
+const [cols, rows] = (new URLSearchParams(location.search).get('size') ?? '20x30').split('x').map(Number)
 const cells = Array.from({ length: cols * rows }, (_, i) => (i % 7 === 0 ? 'A1' : i % 3 === 0 ? 'F10' : 'B11'))
 const chart = {
   id: 'bead-fixture',

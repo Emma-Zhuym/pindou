@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
-import { BOARD_INSET, boardGuideMarks, layout } from '../src/bead/paint'
+import { boardGuideMarks, boardPrint, boardTiles, layout, tiledPrint } from '../src/bead/paint'
 
 for (const [side, inset, interior] of [[52, 1, 50], [78, 4, 70], [104, 2, 100]] as const) {
-  assert.equal(BOARD_INSET[side], inset)
+  assert.equal(boardPrint(side).lead, inset)
   const guides = boardGuideMarks(side)
   assert.deepEqual(guides.map((g) => g.cell), Array.from({ length: interior / 5 + 1 }, (_, i) => inset + i * 5))
   assert.ok(guides.every((g, i) => g.strong === (i % 2 === 0)), `${side} guide styles alternate from a solid line`)
@@ -16,5 +16,15 @@ for (const [side, inset, interior] of [[52, 1, 50], [78, 4, 70], [104, 2, 100]] 
   // Board guides use the board origin (margin), not either chart origin.
   assert.equal(centred.margin, moved.margin)
 }
+
+// a chart bigger than one pegboard lies on several
+assert.deepEqual(boardTiles(78, 78, 148), { x: 1, y: 2 })
+assert.deepEqual(boardTiles(52, 78, 148), { x: 2, y: 3 })
+const two = layout({ cols: 78, rows: 148, cell: 10, board: 78, rulers: false })
+assert.equal(two.w, 78)
+assert.equal(two.h, 156)
+// two corner-printed 78s: lines from peg 0 to 148, just the chart's height
+assert.deepEqual(tiledPrint(78, 2, true), { lead: 0, end: 148 })
+assert.deepEqual(tiledPrint(78, 2, false), { lead: 4, end: 152 })
 
 console.log('paint board guide geometry: ok')

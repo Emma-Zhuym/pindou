@@ -6,13 +6,15 @@ import { Icon } from '../Icon'
 import { boardThumb, codeColour, codeOrder, ICONS } from '../shared'
 import { type Chart, countCells } from '../store'
 import { ColourCard } from './ColourCard'
+import { type Float, lassoPieces, type Pt, putDown } from './lasso'
 
-type Tool = 'move' | 'brush' | 'eraser' | 'picker'
+type Tool = 'move' | 'brush' | 'eraser' | 'picker' | 'lasso'
 const TOOLS: [Tool, string][] = [
   ['move', '移动'],
   ['brush', '画笔'],
   ['eraser', '橡皮'],
   ['picker', '吸管'],
+  ['lasso', '套索'],
 ]
 const UNDO_DEPTH = 50
 /** brush sizes, in cells a side */
@@ -57,7 +59,8 @@ const beadsBox = (cells: string[], cols: number, rows: number): Box => {
 
 /**
  * Editing a saved chart by hand: paint cells with a code (a square brush of one or more cells),
- * erase them, pick a code off the board, swap one code for another everywhere, crop, undo. Saving rewrites the chart's cells, counts and
+ * erase them, pick a code off the board, lasso some beads and move them, swap one code for
+ * another everywhere, crop, undo. Saving rewrites the chart's cells, counts and
  * thumbnail; the recogniser's editing state is dropped so a later "修改识别结果" starts from these
  * cells rather than from the older recognition. The recognised version is kept beside them: it can
  * be shown in place of the edits for a moment, or put back (an undo step like any other).
@@ -84,6 +87,10 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
   const [swap, setSwap] = useState<{ from: string; to: string; exchange?: boolean } | null>(null)
   const [saving, setSaving] = useState(false)
   const [comparing, setComparing] = useState(false)
+  // the lasso being drawn, then the beads it took while they are moved
+  const [lasso, setLasso] = useState<Pt[] | null>(null)
+  const [float, setFloat] = useState<Float | null>(null)
+  const placed = useMemo(() => (float ? putDown(cols, rows, float) : null), [float, cols, rows])
   const changed = useMemo(() => cells.reduce((n, c, i) => n + (c !== original[i] ? 1 : 0), 0), [cells, original])
   const fitCell = Math.floor(Math.min(document.documentElement.clientWidth - 40, 900) / (Math.max(cols, rows) + 2))
   const [cell, setCell] = useState(Math.max(MIN_CELL, fitCell))
@@ -96,12 +103,47 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
     current.current = cells
   })
 
-  const shown = comparing ? original : cells
+  const shown = comparing ? original : (placed?.cells ?? cells)
   const opts = { cells: shown, cols, rows, cell, board: null, labels }
   useEffect(() => {
     const c = ref.current
     if (!c) return
     paintChart(c, { cells: shown, cols, rows, cell, board: null, labels })
+    if (lasso || float) {
+      const { x0, y0 } = layout(opts)
+      const ctx = c.getContext('2d')!
+      ctx.beginPath()
+      if (lasso) {
+        lasso.forEach((p, i) => (i ? ctx.lineTo : ctx.moveTo).call(ctx, x0 + p.x * cell, y0 + p.y * cell))
+        ctx.closePath()
+      } else if (float) {
+        // the edge round the lifted beads where they are now: every side not shared with another
+        const set = new Set(float.pieces.map((p) => `${p.x + float.dx},${p.y + float.dy}`))
+        const has = (x: number, y: number) => set.has(`${x},${y}`)
+        for (const p of float.pieces) {
+          const x = p.x + float.dx
+          const y = p.y + float.dy
+          const X = x0 + x * cell
+          const Y = y0 + y * cell
+          const seg = (ax: number, ay: number, bx: number, by: number) => {
+            ctx.moveTo(ax, ay)
+            ctx.lineTo(bx, by)
+          }
+          if (!has(x, y - 1)) seg(X, Y, X + cell, Y)
+          if (!has(x, y + 1)) seg(X, Y + cell, X + cell, Y + cell)
+          if (!has(x - 1, y)) seg(X, Y, X, Y + cell)
+          if (!has(x + 1, y)) seg(X + cell, Y, X + cell, Y + cell)
+        }
+      }
+      ctx.strokeStyle = 'rgba(255,255,255,0.95)'
+      ctx.lineWidth = 4
+      ctx.stroke()
+      ctx.setLineDash([6, 4])
+      ctx.strokeStyle = '#007aff'
+      ctx.lineWidth = 2
+      ctx.stroke()
+      ctx.setLineDash([])
+    }
     if (!crop) return
     // the part cropped away greyed out, the box kept in blue with a handle on each edge
     const { x0, y0 } = layout(opts)
@@ -125,11 +167,11 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
       ctx.fill()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shown, cols, rows, cell, labels, crop])
+  }, [shown, cols, rows, cell, labels, crop, lasso, float])
   const stageRef = useRef<HTMLDivElement>(null)
   const pinching = usePinchZoom(stageRef, ref, cell, setCell, MIN_CELL, maxCell)
 
-  const counts = useMemo(() => Object.entries(countCells(cells)).sort((a, b) => codeOrder(a[0], b[0])), [cells])
+  const counts = useMemo(() => Object.entries(countCells(placed?.cells ?? cells)).sort((a, b) => codeOrder(a[0], b[0])), [cells, placed])
   const dirty = cells !== chart.cells || cols !== chart.cols || rows !== chart.rows
 
   const snap = (c = cells): Snap => ({ cells: c, cols, rows, original, shift })
@@ -245,9 +287,74 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
     setCell(Math.max(MIN_CELL, Math.min(Math.floor(MAX_SIDE / side), Math.floor(Math.min(document.documentElement.clientWidth - 40, 900) / side))))
   }
 
+  // the lasso: a path drawn round some beads, then those beads dragged a whole cell at a time
+  const path = useRef<Pt[] | null>(null)
+  const grab = useRef<{ x: number; y: number; dx: number; dy: number } | null>(null)
+  const lassoDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (comparing || pinching()) return
+    e.currentTarget.setPointerCapture(e.pointerId)
+    if (float) {
+      grab.current = { x: e.clientX, y: e.clientY, dx: float.dx, dy: float.dy }
+      return
+    }
+    path.current = [cropAt(e)]
+    setLasso(path.current)
+  }
+  const lassoMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const g = grab.current
+    if (g && float) {
+      if (pinching()) {
+        grab.current = null
+        setFloat({ ...float, dx: g.dx, dy: g.dy })
+        return
+      }
+      // kept touching the chart, so it can always be dragged back
+      const xs = float.pieces.map((p) => p.x)
+      const ys = float.pieces.map((p) => p.y)
+      const dx = Math.max(-Math.max(...xs), Math.min(cols - 1 - Math.min(...xs), g.dx + Math.round((e.clientX - g.x) / cell)))
+      const dy = Math.max(-Math.max(...ys), Math.min(rows - 1 - Math.min(...ys), g.dy + Math.round((e.clientY - g.y) / cell)))
+      if (dx !== float.dx || dy !== float.dy) setFloat({ ...float, dx, dy })
+      return
+    }
+    const p = path.current
+    if (!p) return
+    if (pinching()) {
+      path.current = null
+      setLasso(null)
+      return
+    }
+    const q = cropAt(e)
+    const last = p[p.length - 1]
+    if (Math.hypot(q.x - last.x, q.y - last.y) < 0.25) return
+    path.current = [...p, q]
+    setLasso(path.current)
+  }
+  const lassoUp = () => {
+    grab.current = null
+    const p = path.current
+    path.current = null
+    setLasso(null)
+    if (!p) return
+    const pieces = lassoPieces(cells, cols, rows, p)
+    if (pieces.length) setFloat({ pieces, dx: 0, dy: 0, top: true, keep: false, before: cells })
+  }
+  const drop = () => {
+    if (!float || !placed) return
+    if (placed.cells.some((c, i) => c !== float.before[i])) commit(placed.cells, float.before)
+    setFloat(null)
+  }
+  const pickTool = (t: Tool) => {
+    drop()
+    setTool(t)
+  }
+
   const down = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (crop) {
       cropDown(e)
+      return
+    }
+    if (tool === 'lasso') {
+      lassoDown(e)
       return
     }
     if (comparing || tool === 'move' || pinching()) return
@@ -270,6 +377,10 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
       cropMove(e)
       return
     }
+    if (tool === 'lasso') {
+      lassoMove(e)
+      return
+    }
     const s = stroke.current
     if (!s) return
     if (pinching()) {
@@ -282,6 +393,10 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
   }
   const up = () => {
     held.current = null
+    if (tool === 'lasso') {
+      lassoUp()
+      return
+    }
     const s = stroke.current
     stroke.current = null
     if (s?.changed) {
@@ -353,7 +468,7 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
             {comparing ? `识别时的原版 · 之后改了 ${changed} 格` : `${cols}×${rows} · ${counts.length} 色 · ${counts.reduce((a, [, n]) => a + n, 0)} 颗`}
           </span>
         </div>
-        <button className="primary small" disabled={!dirty || saving} onClick={save}>
+        <button className="primary small" disabled={!dirty || saving || !!float} onClick={save}>
           {saving ? '保存中…' : '保存'}
         </button>
       </header>
@@ -361,7 +476,7 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
       <div className="beadtools">
         <div className="segmented small" role="radiogroup" aria-label="工具">
           {TOOLS.map(([t, label]) => (
-            <button key={t} role="radio" aria-checked={tool === t} aria-selected={tool === t} onClick={() => setTool(t)}>
+            <button key={t} role="radio" aria-checked={tool === t} aria-selected={tool === t} onClick={() => pickTool(t)}>
               {label}
             </button>
           ))}
@@ -375,12 +490,12 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
             ))}
           </div>
         )}
-        <button className="chip" disabled={comparing || !!crop} onClick={() => setSwap({ from: code, to: code })}>
+        <button className="chip" disabled={comparing || !!crop || !!float} onClick={() => setSwap({ from: code, to: code })}>
           批量换色
         </button>
         <button
           className={crop ? 'chip on' : 'chip'}
-          disabled={comparing}
+          disabled={comparing || !!float}
           onClick={() => {
             if (crop) {
               setCrop(null)
@@ -393,7 +508,7 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
         >
           裁剪
         </button>
-        {changed > 0 && (
+        {changed > 0 && !float && (
           <>
             <button className={comparing ? 'chip on' : 'chip'} aria-pressed={comparing} onClick={() => setComparing(!comparing)}>
               {comparing ? '看修改后' : '对比原版'}
@@ -440,10 +555,10 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
       <nav className="beadpalette" aria-label="色号">
         {/* undo and redo on the palette's shoulder, near the thumb */}
         <div className="undodock">
-          <button className="roundbtn" aria-label="撤销" disabled={comparing || !history.length} onClick={undo}>
+          <button className="roundbtn" aria-label="撤销" disabled={comparing || !!float || !history.length} onClick={undo}>
             <Icon d={ICONS.undo} size={22} />
           </button>
-          <button className="roundbtn" aria-label="重做" disabled={comparing || !future.length} onClick={redo}>
+          <button className="roundbtn" aria-label="重做" disabled={comparing || !!float || !future.length} onClick={redo}>
             <Icon d={ICONS.redo} size={22} />
           </button>
         </div>
@@ -463,12 +578,38 @@ export function Editor({ chart, onClose, onSave }: { chart: Chart; onClose: () =
               裁剪
             </button>
           </div>
+        ) : float && placed ? (
+          <div className="focusbar cropbar floatbar">
+            <b>{float.pieces.length} 颗</b>
+            <span className="sub">
+              拖动挪位置
+              {placed.overlap ? ` · 重叠 ${placed.overlap} 格` : ''}
+              {placed.lost ? ` · ${placed.lost} 颗出界，放下会去掉` : ''}
+            </span>
+            <div className="segmented small" role="radiogroup" aria-label="重叠的地方">
+              <button role="radio" aria-checked={float.top} aria-selected={float.top} onClick={() => setFloat({ ...float, top: true })}>
+                选区在上
+              </button>
+              <button role="radio" aria-checked={!float.top} aria-selected={!float.top} onClick={() => setFloat({ ...float, top: false })}>
+                原图在上
+              </button>
+            </div>
+            <button className={float.keep ? 'chip on' : 'chip'} aria-pressed={float.keep} onClick={() => setFloat({ ...float, keep: !float.keep })}>
+              原处保留
+            </button>
+            <button className="link" onClick={() => setFloat(null)}>
+              取消
+            </button>
+            <button className="primary small" onClick={drop}>
+              放下
+            </button>
+          </div>
         ) : (
         <>
         <div className="focusbar">
           <span className="swatch" style={{ background: codeColour(code) }} />
           <b>{code}</b>
-          <span className="sub">{tool === 'move' ? '选"画笔"后在图上点或拖' : tool === 'eraser' ? (brush > 1 ? `点或拖动，一次擦 ${brush}×${brush} 格` : '点格子变成空格') : tool === 'picker' ? '点一格取它的色号' : brush > 1 ? `点或拖动，一次涂 ${brush}×${brush} 格` : '点或拖动涂色'}</span>
+          <span className="sub">{tool === 'move' ? '选"画笔"后在图上点或拖' : tool === 'eraser' ? (brush > 1 ? `点或拖动，一次擦 ${brush}×${brush} 格` : '点格子变成空格') : tool === 'picker' ? '点一格取它的色号' : tool === 'lasso' ? '圈住要挪的部分，空格不算' : brush > 1 ? `点或拖动，一次涂 ${brush}×${brush} 格` : '点或拖动涂色'}</span>
           <button className="chip" onClick={() => setCard('brush')}>
             色卡
           </button>
